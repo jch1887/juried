@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>vouch report</title>
+<title>juried report</title>
 <style>
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 2rem auto; max-width: 64rem; padding: 0 1rem; color: #1f2933; line-height: 1.45; }
   header { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -33,11 +33,11 @@
 </head>
 <body>
 <header>
-  <img src="{{ logo }}" alt="vouch">
+  <img src="{{ logo }}" alt="juried">
   <h1>acceptance report</h1>
 </header>
 <p class="meta">
-  Generated {{ report.generated_at }} by vouch {{ report.version }}.
+  Generated {{ report.generated_at }} by juried {{ report.version }}.
   Judge: {{ report.judge.provider }} / <code>{{ report.judge.model }}</code> (temperature {{ report.judge.temperature }}).
   Defaults: {{ report.defaults.runs }} runs per scenario, gate at {{ report.defaults.threshold }} on the lower bound of the Wilson 95% interval.
 </p>
@@ -45,7 +45,7 @@
 <div class="summary">
   <div><strong>{{ report.summary.criteria }}</strong>criteria</div>
   <div><strong>{{ report.summary.scenarios }}</strong>scenarios</div>
-  <div><strong class="pass">{{ report.summary.gates_passed }}</strong>gates passed</div>
+  <div><strong class="pass">{{ report.summary.gates_passed }}</strong>gates upheld</div>
   <div><strong class="{{ 'fail' if report.summary.gates_failed else '' }}">{{ report.summary.gates_failed }}</strong>gates failed</div>
   <div><strong class="{{ 'warn' if report.summary.transport_errors else '' }}">{{ report.summary.transport_errors }}</strong>transport errors</div>
 </div>

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vouch.criteria import CriteriaError, load_criteria, parse_criteria, slugify
+from juried.criteria import CriteriaError, load_criteria, parse_criteria, slugify
 
 DOCUMENT = """# Support bot acceptance criteria
 

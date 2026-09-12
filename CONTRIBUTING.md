@@ -14,14 +14,14 @@ them end to end without API keys.
 
 ## Layout
 
-- `src/vouch/config.py`, `criteria.py`, `scenarios.py`: models and file parsing.
-- `src/vouch/targets/`: the system under test. Stage 1 has an HTTP endpoint target.
-- `src/vouch/judge/`: providers. `base.py` holds the interface and the shared judge and
+- `src/juried/config.py`, `criteria.py`, `scenarios.py`: models and file parsing.
+- `src/juried/targets/`: the system under test. Stage 1 has an HTTP endpoint target.
+- `src/juried/judge/`: providers. `base.py` holds the interface and the shared judge and
   generation logic, `prompts.py` the pinned prompts, `stub.py` a key free provider.
-- `src/vouch/runner.py`: repeated runs, concurrency and caching.
-- `src/vouch/pytest_plugin.py`: collection of YAML scenarios as pytest items.
-- `src/vouch/report/`: JSON and single file HTML output.
-- `src/vouch/cli.py`: `init`, `generate` and `run`.
+- `src/juried/runner.py`: repeated runs, concurrency and caching.
+- `src/juried/pytest_plugin.py`: collection of YAML scenarios as pytest items.
+- `src/juried/report/`: JSON and single file HTML output.
+- `src/juried/cli.py`: `init`, `generate` and `run`.
 
 Extension points for later stages: a new `Target` implementation for UI driving, a new
 `Provider` for other judges, a `turns` field on `Scenario` for multi turn conversations,

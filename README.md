@@ -1,12 +1,14 @@
-<img src="vouch.png" alt="vouch" width="360">
+<img src="juried.png" alt="juried" width="360">
 
 Acceptance testing for LLM features, built for QA teams.
 
-vouch treats your LLM powered feature as a black box behind an HTTP endpoint. You write
-acceptance criteria in plain English, vouch generates test scenarios from them, runs each
+juried treats your LLM powered feature as a black box behind an HTTP endpoint. You write
+acceptance criteria in plain English, juried generates test scenarios from them, runs each
 scenario repeatedly, has a pinned LLM judge mark every response, and reports pass rates
 with confidence intervals. Scenarios are ordinary pytest tests, so `-k`, `-x`, markers
-and `--junitxml` all work and the results fit an existing CI job.
+and `--junitxml` all work and the results fit an existing CI job. The name says how it
+works: the feature goes before a jury of repeated runs and only passes when the panel's
+verdict holds.
 
 ## Install
 
@@ -20,19 +22,19 @@ environment; nothing else is ever read from disk.
 ## Three commands
 
 ```
-vouch init        # writes vouch.toml and an example acceptance.md
-vouch generate    # turns each criterion into scenarios/generated/<criterion>.yaml
-vouch run         # runs every scenario N times under pytest and writes the report
+juried init        # writes juried.toml and an example acceptance.md
+juried generate    # turns each criterion into scenarios/generated/<criterion>.yaml
+juried run         # runs every scenario N times under pytest and writes the report
 ```
 
-`vouch run` accepts pytest arguments after its own, for example
-`vouch run --runs 20 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
+`juried run` accepts pytest arguments after its own, for example
+`juried run --runs 20 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
 review and edit the generated YAML, commit it, and `run` never touches it.
 
 ## Configuration
 
-`vouch.toml` lives at the repo root. Any key can be overridden with an environment
-variable named `VOUCH_<SECTION>_<KEY>`, such as `VOUCH_RUN_RUNS=20`.
+`juried.toml` lives at the repo root. Any key can be overridden with an environment
+variable named `JURIED_<SECTION>_<KEY>`, such as `JURIED_RUN_RUNS=20`.
 
 ```toml
 [target]
@@ -96,21 +98,21 @@ scenarios:
 ## How a scenario passes
 
 Each scenario runs `runs` times. The judge marks each response pass or fail with a one
-line reason, using a fixed prompt at temperature 0. vouch computes the pass rate and its
+line reason, using a fixed prompt at temperature 0. juried computes the pass rate and its
 Wilson 95% interval, and the scenario passes when the lower bound meets `threshold`. With
 10 runs a perfect score gives a lower bound of 0.72, so the default threshold is 0.7; a
-stricter threshold needs more runs, and vouch warns when a gate can never pass.
+stricter threshold needs more runs, and juried warns when a gate can never pass.
 
 A failing gate is a normal pytest failure that shows the pass rate, the interval, the
 threshold and the first failing transcript with the judge's reason. An HTTP error from
 your endpoint is reported as a transport error, separately from a judge fail. Responses
-and verdicts are cached in `.vouch/` by content hash, so re-runs during development are
-cheap; pass `--no-cache` to skip it. Every verdict is appended to `.vouch/verdicts.jsonl`
+and verdicts are cached in `.juried/` by content hash, so re-runs during development are
+cheap; pass `--no-cache` to skip it. Every verdict is appended to `.juried/verdicts.jsonl`
 with the judge model and timestamp.
 
 ## The report
 
-After a run vouch writes `reports/vouch-report.html` and `reports/vouch-report.json`.
+After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.
 The HTML is a single self contained file with no scripts. It opens with the totals, then
 lists each acceptance criterion with its description, a table of its scenarios showing
 passes, pass rate, interval, threshold and gate result, and beneath the table each
@@ -123,13 +125,13 @@ file holds the same structure plus every attempt, for anyone who wants to chart 
 ```
 cd examples/faq-bot
 python server.py &      # deterministic fake FAQ bot on port 8765
-vouch generate          # uses the stub provider from vouch.toml
-vouch run
+juried generate          # uses the stub provider from juried.toml
+juried run
 ```
 
 The stub judge passes a response that contains every `"quoted phrase"` in `expected`.
 One hand written refund scenario fails its gate on purpose, because the fake bot drops
-the 14 day detail every fourth time, which is the kind of flakiness vouch exists to catch.
+the 14 day detail every fourth time, which is the kind of flakiness juried exists to catch.
 
 ## Development
 

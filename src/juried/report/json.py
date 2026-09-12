@@ -6,10 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from vouch import __version__
-from vouch.config import Config
-from vouch.criteria import Criterion
-from vouch.runner import ScenarioResult
+from juried import __version__
+from juried.config import Config
+from juried.criteria import Criterion
+from juried.runner import ScenarioResult
 
 
 def scenario_entry(result: ScenarioResult) -> dict[str, Any]:
@@ -55,7 +55,7 @@ def build_report(
 
     gates_passed = sum(1 for r in results if r.gate_passed)
     return {
-        "tool": "vouch",
+        "tool": "juried",
         "version": __version__,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "judge": {

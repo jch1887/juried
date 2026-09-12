@@ -34,7 +34,7 @@ scenarios:
 def write_project(pytester: pytest.Pytester, url: str, runs: int = 4, extra: str = "") -> None:
     pytester.makefile(
         ".toml",
-        vouch=f"""
+        juried=f"""
 [target]
 url = "{url}/chat"
 retries = 0
@@ -60,10 +60,10 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     result.assert_outcomes(passed=1, failed=1)
     result.stdout.re_match_lines(
         [
-            r"vouch: config .*vouch.toml, judge stub/stub, runs 4, threshold 0.5, cache on",
+            r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, cache on",
             r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(lower 0.00 < 0.50\).*",
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
-            r"vouch gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
+            r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
             r"\s+criterion: refund-policy \(Refund policy\)",
             r"\s+pass rate: 0/4 = 0.00",
             r"\s+Wilson 95% interval: \[0.00, 0.49\]",
@@ -72,13 +72,13 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
             r"\s+judge \(stub\): response does not mention '14 days'",
-            r"2 scenarios, 1 passed the gate, 1 failed, 0 transport errors",
-            r"report: .*vouch-report.html",
+            r"2 scenarios, 1 upheld, 1 failed, 0 transport errors",
+            r"report: .*juried-report.html",
         ]
     )
-    assert (pytester.path / "reports" / "vouch-report.html").is_file()
-    assert (pytester.path / "reports" / "vouch-report.json").is_file()
-    assert (pytester.path / ".vouch" / "verdicts.jsonl").is_file()
+    assert (pytester.path / "reports" / "juried-report.html").is_file()
+    assert (pytester.path / "reports" / "juried-report.json").is_file()
+    assert (pytester.path / ".juried" / "verdicts.jsonl").is_file()
 
 
 def test_keyword_and_marker_selection(pytester: pytest.Pytester, fake_bot_url: str) -> None:
@@ -126,19 +126,21 @@ def test_junit_xml(pytester: pytest.Pytester, fake_bot_url: str) -> None:
 
 def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
-    result = pytester.runpytest("--vouch-runs=2", "--vouch-threshold=0.1", "--vouch-no-cache", "-v")
+    result = pytester.runpytest(
+        "--juried-runs=2", "--juried-threshold=0.1", "--juried-no-cache", "-v"
+    )
     result.assert_outcomes(passed=1, failed=1)
-    result.stdout.re_match_lines([r"vouch: config .*, runs 2, threshold 0.1, cache off"])
-    assert not (pytester.path / ".vouch" / "cache").exists()
+    result.stdout.re_match_lines([r"juried: config .*, runs 2, threshold 0.1, cache off"])
+    assert not (pytester.path / ".juried" / "cache").exists()
 
 
 def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
-    result = pytester.runpytest("--vouch-threshold=0.9", "-k", "hours")
+    result = pytester.runpytest("--juried-threshold=0.9", "-k", "hours")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "vouch: warning: with 4 runs the best possible lower bound is 0.51, below the "
+            "juried: warning: with 4 runs the best possible lower bound is 0.51, below the "
             "threshold 0.90, so the gate can never pass.*",
             "*note: with 4 runs the best possible lower bound*",
         ]
@@ -147,8 +149,8 @@ def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: s
 
 def test_transport_errors_reported(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
-    (pytester.path / "vouch.toml").write_text(
-        (pytester.path / "vouch.toml").read_text().replace("/chat", "/broken")
+    (pytester.path / "juried.toml").write_text(
+        (pytester.path / "juried.toml").read_text().replace("/chat", "/broken")
     )
     result = pytester.runpytest("-v", "-k", "hours")
     result.assert_outcomes(failed=1)
@@ -175,10 +177,10 @@ def test_unknown_criterion_is_collection_error(
 
 
 def test_bad_config_is_usage_error(pytester: pytest.Pytester) -> None:
-    pytester.makefile(".toml", vouch="[run]\nruns = 1\n")
+    pytester.makefile(".toml", juried="[run]\nruns = 1\n")
     result = pytester.runpytest()
     assert result.ret == pytest.ExitCode.USAGE_ERROR
-    result.stderr.fnmatch_lines(["*vouch: vouch.toml is invalid*"])
+    result.stderr.fnmatch_lines(["*juried: juried.toml is invalid*"])
 
 
 def test_dormant_without_config(pytester: pytest.Pytester) -> None:
@@ -187,17 +189,17 @@ def test_dormant_without_config(pytester: pytest.Pytester) -> None:
     (pytester.path / "scenarios" / "x.yaml").write_text(HOURS_SCENARIOS)
     result = pytester.runpytest("-v")
     result.assert_outcomes(passed=1)
-    assert "vouch:" not in result.stdout.str()
+    assert "juried:" not in result.stdout.str()
     assert "x.yaml" not in result.stdout.str()
 
 
 def test_explicit_config_path(pytester: pytest.Pytester, fake_bot_url: str, tmp_path: Path) -> None:
     write_project(pytester, fake_bot_url)
     moved = tmp_path / "elsewhere.toml"
-    moved.write_text((pytester.path / "vouch.toml").read_text())
-    (pytester.path / "vouch.toml").unlink()
+    moved.write_text((pytester.path / "juried.toml").read_text())
+    (pytester.path / "juried.toml").unlink()
     (tmp_path / "acceptance.md").write_text(ACCEPTANCE)
     (tmp_path / "scenarios").mkdir()
     (tmp_path / "scenarios" / "s.yaml").write_text(HOURS_SCENARIOS)
-    result = pytester.runpytest(f"--vouch-config={moved}", str(tmp_path / "scenarios"))
+    result = pytester.runpytest(f"--juried-config={moved}", str(tmp_path / "scenarios"))
     result.assert_outcomes(passed=1)

@@ -12,11 +12,11 @@ def percent(value: float) -> str:
 
 
 def load_template() -> str:
-    return resources.files("vouch.report").joinpath("template.html").read_text(encoding="utf-8")
+    return resources.files("juried.report").joinpath("template.html").read_text(encoding="utf-8")
 
 
 def load_logo() -> str:
-    data = resources.files("vouch.report").joinpath("logo.png").read_bytes()
+    data = resources.files("juried.report").joinpath("logo.png").read_bytes()
     return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
 
 

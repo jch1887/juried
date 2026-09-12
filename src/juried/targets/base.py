@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from vouch.scenarios import Turn
+from juried.scenarios import Turn
 
 
 @dataclass(frozen=True)

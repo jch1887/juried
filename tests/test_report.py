@@ -2,12 +2,12 @@ import json
 from html.parser import HTMLParser
 from pathlib import Path
 
-from vouch.config import Config, parse_config
-from vouch.criteria import Criterion
-from vouch.judge import Verdict
-from vouch.report import build_report, render_html, write_reports
-from vouch.runner import RunRecord, ScenarioResult
-from vouch.scenarios import Scenario, Turn
+from juried.config import Config, parse_config
+from juried.criteria import Criterion
+from juried.judge import Verdict
+from juried.report import build_report, render_html, write_reports
+from juried.runner import RunRecord, ScenarioResult
+from juried.scenarios import Scenario, Turn
 
 HOURS = Criterion("hours", "Opening hours", "States the hours.")
 REFUNDS = Criterion("refunds", "Refund policy", "Refunds within 14 days.")
@@ -66,7 +66,7 @@ def config(tmp_path: Path) -> Config:
 
 def test_build_report_structure(tmp_path: Path) -> None:
     report = build_report(config(tmp_path), [HOURS, REFUNDS, UNCOVERED], results())
-    assert report["tool"] == "vouch"
+    assert report["tool"] == "juried"
     assert report["judge"] == {"provider": "stub", "model": "stub", "temperature": 0.0}
     assert report["summary"] == {
         "criteria": 3,
@@ -125,6 +125,7 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "HTTP 500 from http://bot/chat: boom" in html
     assert "Criteria with no scenarios: tone." in html
     assert "1 / 3" in html
+    assert "gates upheld" in html
     assert "44% to 100%" in html
     assert 'href="http' not in html
     assert '<p><span class="label">assistant</span>hello</p>' in html
@@ -132,8 +133,8 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
 
 def test_write_reports(tmp_path: Path) -> None:
     paths = write_reports(config(tmp_path), [HOURS, REFUNDS], results(), tmp_path / "out")
-    assert paths.json == tmp_path / "out" / "vouch-report.json"
-    assert paths.html == tmp_path / "out" / "vouch-report.html"
+    assert paths.json == tmp_path / "out" / "juried-report.json"
+    assert paths.html == tmp_path / "out" / "juried-report.html"
     data = json.loads(paths.json.read_text())
     assert data["summary"]["scenarios"] == 2
     assert paths.html.read_text().startswith("<!doctype html>")

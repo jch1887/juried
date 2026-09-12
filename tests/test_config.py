@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vouch.config import ConfigError, find_config, load_config, parse_config
+from juried.config import ConfigError, find_config, load_config, parse_config
 
 MINIMAL = """
 [target]
@@ -21,7 +21,7 @@ def test_defaults(tmp_path: Path) -> None:
     assert config.target.response_path == "reply"
     assert config.criteria_path == tmp_path / "acceptance.md"
     assert config.scenarios_path == tmp_path / "scenarios"
-    assert config.cache_path == tmp_path / ".vouch"
+    assert config.cache_path == tmp_path / ".juried"
     assert config.report_path == tmp_path / "reports"
 
 
@@ -64,11 +64,11 @@ scenarios_per_criterion = 6
 
 def test_env_overrides(tmp_path: Path) -> None:
     environ = {
-        "VOUCH_RUN_RUNS": "3",
-        "VOUCH_RUN_CACHE_DIR": "/tmp/elsewhere",
-        "VOUCH_JUDGE_MODEL": "claude-opus-5",
-        "VOUCH_TARGET_URL": "http://override/chat",
-        "VOUCH_UNKNOWN_KEY": "ignored",
+        "JURIED_RUN_RUNS": "3",
+        "JURIED_RUN_CACHE_DIR": "/tmp/elsewhere",
+        "JURIED_JUDGE_MODEL": "claude-opus-5",
+        "JURIED_TARGET_URL": "http://override/chat",
+        "JURIED_UNKNOWN_KEY": "ignored",
         "OTHER": "ignored",
     }
     config = parse_config(MINIMAL, tmp_path, environ=environ)
@@ -94,11 +94,11 @@ def test_invalid_toml_rejected(tmp_path: Path) -> None:
 
 
 def test_load_and_find(tmp_path: Path) -> None:
-    (tmp_path / "vouch.toml").write_text(MINIMAL)
+    (tmp_path / "juried.toml").write_text(MINIMAL)
     nested = tmp_path / "a" / "b"
     nested.mkdir(parents=True)
     found = find_config(nested)
-    assert found == tmp_path / "vouch.toml"
+    assert found == tmp_path / "juried.toml"
     config = load_config(found, environ={})
     assert config.root == tmp_path.resolve()
     assert find_config(Path("/")) is None

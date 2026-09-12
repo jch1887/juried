@@ -6,14 +6,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from vouch.cache import Cache
-from vouch.config import parse_config
-from vouch.criteria import Criterion
-from vouch.judge import StubProvider
-from vouch.runner import Runner, ScenarioResult
-from vouch.scenarios import Scenario, Turn
-from vouch.targets.base import TargetResponse
-from vouch.transport import TransportFailure
+from juried.cache import Cache
+from juried.config import parse_config
+from juried.criteria import Criterion
+from juried.judge import StubProvider
+from juried.runner import Runner, ScenarioResult
+from juried.scenarios import Scenario, Turn
+from juried.targets.base import TargetResponse
+from juried.transport import TransportFailure
 
 CRITERION = Criterion("hours", "Opening hours", "States the hours.")
 
@@ -58,7 +58,7 @@ def make_runner(
 ) -> Runner:
     config = parse_config(
         f'[target]\nurl = "http://unused/"\n[run]\nruns = {runs}\nconcurrency = {concurrency}\n'
-        f'cache_dir = "{tmp_path / ".vouch"}"\n',
+        f'cache_dir = "{tmp_path / ".juried"}"\n',
         tmp_path,
         environ={},
     )
@@ -134,7 +134,7 @@ def test_cache_makes_reruns_free(tmp_path: Path) -> None:
     assert all(run.response_cached and run.verdict_cached for run in second.runs)
     assert [run.outcome for run in second.runs] == [run.outcome for run in first.runs]
 
-    log = (tmp_path / ".vouch" / "verdicts.jsonl").read_text().splitlines()
+    log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()
     assert len(log) == 6
     entry = json.loads(log[-1])
     assert entry["model"] == "stub"
@@ -150,8 +150,8 @@ def test_cache_keys_include_attempt_and_content(tmp_path: Path) -> None:
     assert target.calls == 4
     runner.run(scenario(expected='Mentions "5pm".'), CRITERION)
     assert target.calls == 4
-    responses = list((tmp_path / ".vouch" / "cache" / "responses").glob("*.json"))
-    verdicts = list((tmp_path / ".vouch" / "cache" / "verdicts").glob("*.json"))
+    responses = list((tmp_path / ".juried" / "cache" / "responses").glob("*.json"))
+    verdicts = list((tmp_path / ".juried" / "cache" / "verdicts").glob("*.json"))
     assert len(responses) == 4
     assert len(verdicts) == 3
 
@@ -162,7 +162,7 @@ def test_cache_can_be_disabled(tmp_path: Path) -> None:
     runner.run(scenario(), CRITERION)
     runner.run(scenario(), CRITERION)
     assert target.calls == 4
-    assert not (tmp_path / ".vouch" / "cache").exists()
+    assert not (tmp_path / ".juried" / "cache").exists()
 
 
 def test_transport_errors_are_not_cached(tmp_path: Path) -> None:
@@ -175,7 +175,7 @@ def test_transport_errors_are_not_cached(tmp_path: Path) -> None:
 def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
     config = parse_config(
         f'[target]\nurl = "{fake_bot_url}/chat"\n[run]\nruns = 6\n'
-        f'cache_dir = "{tmp_path / ".vouch"}"\n[judge]\nprovider = "stub"\n',
+        f'cache_dir = "{tmp_path / ".juried"}"\n[judge]\nprovider = "stub"\n',
         tmp_path,
         environ={},
     )
@@ -189,7 +189,7 @@ def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
     assert 0 < result.passes < 6
     broken = parse_config(
         f'[target]\nurl = "{fake_bot_url}/broken"\nretries = 0\n[run]\nruns = 2\n'
-        f'cache_dir = "{tmp_path / ".vouch"}"\n',
+        f'cache_dir = "{tmp_path / ".juried"}"\n',
         tmp_path,
         environ={},
     )

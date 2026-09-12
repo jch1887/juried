@@ -1,6 +1,6 @@
 import pytest
 
-from vouch.stats import best_possible_lower_bound, gate_passes, wilson_interval
+from juried.stats import best_possible_lower_bound, gate_passes, wilson_interval
 
 
 @pytest.mark.parametrize(

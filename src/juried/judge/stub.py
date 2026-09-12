@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 
-from vouch.criteria import Criterion
-from vouch.judge.base import Provider, Verdict
-from vouch.scenarios import Scenario, ScenarioDraft
+from juried.criteria import Criterion
+from juried.judge.base import Provider, Verdict
+from juried.scenarios import Scenario, ScenarioDraft
 
 QUOTED = re.compile(r'"([^"]+)"')
 

@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from vouch import __version__
-from vouch.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
-from vouch.criteria import CriteriaError, load_criteria
-from vouch.generate import generate_scenarios
-from vouch.judge import ProviderError, build_provider
-from vouch.scenarios import ScenarioError
-from vouch.transport import TransportFailure
+from juried import __version__
+from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
+from juried.criteria import CriteriaError, load_criteria
+from juried.generate import generate_scenarios
+from juried.judge import ProviderError, build_provider
+from juried.scenarios import ScenarioError
+from juried.transport import TransportFailure
 
-INIT_CONFIG = """# vouch configuration. Any value can be overridden with an environment variable
-# named VOUCH_<SECTION>_<KEY>, for example VOUCH_RUN_RUNS=20.
+INIT_CONFIG = """# juried configuration. Any value can be overridden with an environment variable
+# named JURIED_<SECTION>_<KEY>, for example JURIED_RUN_RUNS=20.
 
 [target]
 # {{message}} is replaced with the scenario message. A value of exactly
@@ -42,7 +42,7 @@ scenarios_dir = "scenarios"
 runs = 10
 threshold = 0.7
 concurrency = 4
-cache_dir = ".vouch"
+cache_dir = ".juried"
 report_dir = "reports"
 
 [judge]
@@ -71,17 +71,17 @@ When the assistant does not know the answer it says so and points the customer
 to help@example.com rather than guessing.
 """
 
-INIT_GITIGNORE = ".vouch/\nreports/\n"
+INIT_GITIGNORE = ".juried/\nreports/\n"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="vouch", description="Acceptance testing for LLM features, built for QA teams."
+        prog="juried", description="Acceptance testing for LLM features, built for QA teams."
     )
-    parser.add_argument("--version", action="version", version=f"vouch {__version__}")
+    parser.add_argument("--version", action="version", version=f"juried {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    init = commands.add_parser("init", help="write a starter vouch.toml and criteria file")
+    init = commands.add_parser("init", help="write a starter juried.toml and criteria file")
     init.add_argument("--dir", default=".", help="directory to initialise (default: current)")
     init.add_argument("--force", action="store_true", help="overwrite existing files")
 
@@ -132,7 +132,7 @@ def command_init(directory: Path, force: bool) -> int:
                 handle.write("\n")
             handle.write("\n".join(missing) + "\n")
         print(f"updated {gitignore}")
-    print("next: edit acceptance.md, set [target] in vouch.toml, then run 'vouch generate'")
+    print("next: edit acceptance.md, set [target] in juried.toml, then run 'juried generate'")
     return 0
 
 
@@ -160,7 +160,7 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
         criterion_id = path.stem
         print(f"wrote {path} ({outcome.counts[criterion_id]} scenarios)")
     if outcome.written:
-        print("review and edit the generated files, then commit them and run 'vouch run'")
+        print("review and edit the generated files, then commit them and run 'juried run'")
     return 0
 
 
@@ -172,15 +172,15 @@ def command_run(
     pytest_args: Sequence[str],
 ) -> int:
     path, config = locate_config(explicit)
-    args = [f"--vouch-config={path}", f"--rootdir={path.parent}", "-v"]
+    args = [f"--juried-config={path}", f"--rootdir={path.parent}", "-v"]
     if runs is not None:
-        args.append(f"--vouch-runs={runs}")
+        args.append(f"--juried-runs={runs}")
     if threshold is not None:
-        args.append(f"--vouch-threshold={threshold}")
+        args.append(f"--juried-threshold={threshold}")
     if no_cache:
-        args.append("--vouch-no-cache")
+        args.append("--juried-no-cache")
     if os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
-        args.extend(["-p", "vouch.pytest_plugin"])
+        args.extend(["-p", "juried.pytest_plugin"])
     extra = [arg for arg in pytest_args if arg != "--"]
     if not any(not arg.startswith("-") and Path(arg).exists() for arg in extra):
         args.append(str(config.scenarios_path))
@@ -199,7 +199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_generate(args.config, args.criterion, args.force)
         return command_run(args.config, args.runs, args.threshold, args.no_cache, extra)
     except (ConfigError, CriteriaError, ScenarioError, ProviderError, TransportFailure) as exc:
-        print(f"vouch: {exc}", file=sys.stderr)
+        print(f"juried: {exc}", file=sys.stderr)
         return 2
 
 

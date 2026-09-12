@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from vouch.scenarios import (
+from juried.scenarios import (
     Scenario,
     ScenarioError,
     dump_scenario_file,

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from vouch.criteria import Criterion
-from vouch.scenarios import Scenario, Turn
+from juried.criteria import Criterion
+from juried.scenarios import Scenario, Turn
 
 PROMPT_VERSION = "1"
 

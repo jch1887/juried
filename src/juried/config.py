@@ -8,8 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
 
-CONFIG_FILENAME = "vouch.toml"
-ENV_PREFIX = "VOUCH_"
+CONFIG_FILENAME = "juried.toml"
+ENV_PREFIX = "JURIED_"
 
 ProviderName = Literal["anthropic", "openai", "stub"]
 
@@ -39,7 +39,7 @@ class RunConfig(StrictModel):
     runs: int = Field(default=10, ge=1)
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
-    cache_dir: Path = Path(".vouch")
+    cache_dir: Path = Path(".juried")
     report_dir: Path = Path("reports")
 
 

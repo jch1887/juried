@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from vouch.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
-from vouch.transport import request_json
+from juried.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
+from juried.transport import request_json
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 API_VERSION = "2023-06-01"

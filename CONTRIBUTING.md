@@ -17,16 +17,27 @@ end without API keys.
 ## Live provider tests
 
 The unit tests only assert what juried sends to Anthropic and OpenAI, never that either
-API still accepts it. `tests/test_live.py` sends one judge and one generate request per
-provider to the real API. It is deselected by default and runs with
+API still accepts it. `tests/test_live.py` sends, per provider, two judge requests that must
+come back as parseable verdicts (one pass, one fail) and one generate request that must
+come back as valid `ScenarioDraft`s, and checks that every response carried non zero token
+counts. It is deselected by default and runs locally with
 
 ```
-JURIED_LIVE=1 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... pytest -m live
+JURIED_LIVE=1 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... pytest -m live -v
 ```
 
-A missing key skips that provider. The `Live provider contract` workflow runs it weekly
-and on demand from the Actions tab, using the repository secrets `ANTHROPIC_API_KEY` and
-`OPENAI_API_KEY`. Run it before a release and after any change to a provider module.
+A missing key skips that provider, so with one key set you exercise one provider. The
+default models are `claude-haiku-4-5` and `gpt-4.1-mini`; override them with
+`JURIED_LIVE_ANTHROPIC_MODEL` and `JURIED_LIVE_OPENAI_MODEL`. A run costs well under a
+penny.
+
+The `Live provider contract` workflow runs the same command weekly and on demand from the
+Actions tab. It needs the repository secrets `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`
+(a missing one skips that provider, so check the log rather than the tick) and reads the
+optional repository variables `JURIED_LIVE_ANTHROPIC_MODEL` and
+`JURIED_LIVE_OPENAI_MODEL`. It uploads the pytest output as the `live-pytest-output`
+artifact on every run, pass or fail, so a green run can be inspected for which providers
+actually ran. Run it before a release and after any change to a provider module.
 
 ## Layout
 

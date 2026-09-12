@@ -15,6 +15,7 @@ from juried import __version__
 from juried.config import Config, StrictModel
 from juried.criteria import Criterion, slugify
 from juried.judge.base import Provider, Verdict, agreement, majority_verdict
+from juried.report.json import SCHEMA_VERSION
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, Turn
 
 CALIBRATION_REPORT = "juried-calibration.json"
@@ -182,6 +183,7 @@ class CalibrationResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "tool": "juried",
+            "schema_version": SCHEMA_VERSION,
             "version": __version__,
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "judge": {"provider": self.provider, "model": self.model, "votes": self.votes},

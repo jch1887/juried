@@ -16,7 +16,13 @@ from juried.calibrate import (
     run_calibration,
     write_calibration_report,
 )
-from juried.compare import CompareError, compare_reports, comparison_dict, load_report
+from juried.compare import (
+    CompareError,
+    check_same_schema,
+    compare_reports,
+    comparison_dict,
+    load_report,
+)
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, load_criteria
 from juried.generate import generate_scenarios
@@ -299,7 +305,9 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
 
 def command_compare(old: str, new: str, tolerance: float, json_path: str | None) -> int:
     old_path, new_path = Path(old), Path(new)
-    changes = compare_reports(load_report(old_path), load_report(new_path), tolerance)
+    old_report, new_report = load_report(old_path), load_report(new_path)
+    check_same_schema(old_path, old_report, new_path, new_report)
+    changes = compare_reports(old_report, new_report, tolerance)
     regressions = [change for change in changes if change.regression]
     improvements = [change for change in changes if change.kind in ("gate regained", "improved")]
     neutral = [change for change in changes if change.kind in ("added", "removed")]

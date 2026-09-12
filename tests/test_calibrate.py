@@ -95,6 +95,7 @@ def test_run_calibration_with_votes(tmp_path: Path) -> None:
     assert result.disagreements == []
     assert all(len(outcome.votes) == 3 for outcome in result.outcomes)
     data = result.to_dict()
+    assert data["schema_version"] == 1
     assert data["judge"]["votes"] == 3
     assert data["cases"][1]["human"] == "fail" and data["cases"][1]["judge"] == "fail"
     assert data["cases"][1]["agreement"] == 1.0

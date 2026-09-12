@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "juried"
-version = "0.1.1"
+version = "0.2.0"
 description = "Acceptance testing for LLM features, built for QA teams."
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ requires-python = ">=3.11"
 authors = [{ name = "jch1887" }]
 keywords = ["llm", "testing", "pytest", "qa", "acceptance-testing", "evaluation"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Framework :: Pytest",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -34,7 +34,7 @@ dependencies = [
 Homepage = "https://github.com/jch1887/juried"
 Repository = "https://github.com/jch1887/juried"
 Issues = "https://github.com/jch1887/juried/issues"
-Changelog = "https://github.com/jch1887/juried/releases"
+Changelog = "https://github.com/jch1887/juried/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

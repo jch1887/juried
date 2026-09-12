@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from juried.cache import Cache
+from juried.calibrate import CALIBRATION_REPORT
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
 from juried.judge import ProviderError, build_provider
@@ -391,6 +392,18 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             "run without --cache-responses to sample again",
             yellow=True,
             bold=True,
+        )
+    if (
+        state.config.judge.provider != "stub"
+        and not (state.config.report_path / CALIBRATION_REPORT).is_file()
+    ):
+        terminalreporter.write_line(
+            f"juried: warning: no calibration report at "
+            f"{state.config.report_path / CALIBRATION_REPORT}; these verdicts come from "
+            f"{state.config.judge.provider}/{state.config.judge.model} and nothing has checked "
+            "it against human labels. Label real responses under calibration/ and run "
+            "'juried calibrate'",
+            yellow=True,
         )
     if state.report_paths is not None:
         terminalreporter.write_line(f"report: {state.report_paths.html}")

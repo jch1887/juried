@@ -105,6 +105,31 @@ When the assistant does not know the answer it says so and points the customer
 to help@example.com rather than guessing.
 """
 
+INIT_CALIBRATION = """# Responses your team has judged by hand, for `juried calibrate`.
+#
+# Do not trust the judge until it has been checked here. Collect real responses from your
+# feature, decide pass or fail yourselves, and record them below; then run
+# `juried calibrate` and read every disagreement. Label at least a handful of cases per
+# criterion, including borderline responses and ones that use the right words for the
+# wrong reason. Rerun calibrate whenever the judge model, temperature or prompt changes.
+#
+# The two cases below only show the shape. Replace them with your own.
+criterion: opening-hours
+cases:
+  - name: Full answer
+    message: When are you open?
+    expected: Gives the weekday hours "9am" to "5pm" and says it is closed at weekends.
+    response: We are open Monday to Friday, 9am to 5pm, and closed at weekends.
+    verdict: pass
+
+  - name: Right words, wrong answer
+    message: When are you open?
+    expected: Gives the weekday hours "9am" to "5pm" and says it is closed at weekends.
+    response: We are never open at 9am or 5pm on weekdays, only at weekends.
+    verdict: fail
+    note: contains both phrases while contradicting the criterion
+"""
+
 INIT_GITIGNORE = ".juried/\nreports/\n"
 
 
@@ -181,11 +206,13 @@ def command_init(directory: Path, force: bool) -> int:
     files = {
         directory / CONFIG_FILENAME: INIT_CONFIG,
         directory / "acceptance.md": INIT_CRITERIA,
+        directory / "calibration" / "example.yaml": INIT_CALIBRATION,
     }
     for path, content in files.items():
         if path.exists() and not force:
             print(f"kept existing {path}")
             continue
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         print(f"wrote {path}")
     (directory / "scenarios").mkdir(exist_ok=True)
@@ -198,7 +225,10 @@ def command_init(directory: Path, force: bool) -> int:
                 handle.write("\n")
             handle.write("\n".join(missing) + "\n")
         print(f"updated {gitignore}")
-    print("next: edit acceptance.md, set [target] in juried.toml, then run 'juried generate'")
+    print(
+        "next: edit acceptance.md, set [target] in juried.toml, run 'juried generate', and "
+        "label real responses in calibration/ before trusting the judge ('juried calibrate')"
+    )
     return 0
 
 

@@ -7,8 +7,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import Field, ValidationError
 
-from vouch.config import StrictModel
-from vouch.criteria import slugify
+from juried.config import StrictModel
+from juried.criteria import slugify
 
 ScenarioKind = Literal["happy_path", "edge_case", "custom"]
 SCENARIO_SUFFIXES = (".yaml", ".yml")

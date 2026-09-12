@@ -8,15 +8,15 @@ from typing import Any
 
 import httpx
 
-from vouch.cache import Cache
-from vouch.config import Config
-from vouch.criteria import Criterion
-from vouch.judge.base import Provider, Verdict
-from vouch.scenarios import Scenario
-from vouch.stats import Interval, wilson_interval
-from vouch.targets.base import Target
-from vouch.targets.http import HttpTarget
-from vouch.transport import TransportFailure
+from juried.cache import Cache
+from juried.config import Config
+from juried.criteria import Criterion
+from juried.judge.base import Provider, Verdict
+from juried.scenarios import Scenario
+from juried.stats import Interval, wilson_interval
+from juried.targets.base import Target
+from juried.targets.http import HttpTarget
+from juried.transport import TransportFailure
 
 TargetFactory = Callable[[httpx.AsyncClient], Target]
 

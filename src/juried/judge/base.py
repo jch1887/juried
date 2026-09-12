@@ -11,9 +11,9 @@ from typing import Any, Self
 import httpx
 from pydantic import ValidationError
 
-from vouch.criteria import Criterion
-from vouch.judge import prompts
-from vouch.scenarios import Scenario, ScenarioDraft
+from juried.criteria import Criterion
+from juried.judge import prompts
+from juried.scenarios import Scenario, ScenarioDraft
 
 JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 

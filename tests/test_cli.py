@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from vouch.cli import main
+from juried.cli import main
 
 ACCEPTANCE = "# Criteria\n\n## Opening hours\nStates the hours, 9am to 5pm.\n"
 
@@ -15,25 +15,25 @@ def test_init_writes_files_and_keeps_existing(
 ) -> None:
     (tmp_path / ".gitignore").write_text("*.pyc")
     assert main(["init", "--dir", str(tmp_path)]) == 0
-    assert (tmp_path / "vouch.toml").is_file()
+    assert (tmp_path / "juried.toml").is_file()
     assert (tmp_path / "acceptance.md").is_file()
     assert (tmp_path / "scenarios").is_dir()
-    assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.vouch/\nreports/\n"
+    assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.juried/\nreports/\n"
     (tmp_path / "acceptance.md").write_text("custom")
     assert main(["init", "--dir", str(tmp_path)]) == 0
     assert (tmp_path / "acceptance.md").read_text() == "custom"
     assert "kept existing" in capsys.readouterr().out
     assert main(["init", "--dir", str(tmp_path), "--force"]) == 0
     assert (tmp_path / "acceptance.md").read_text().startswith("# Acceptance criteria")
-    assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.vouch/\nreports/\n"
+    assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.juried/\nreports/\n"
 
 
 def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     main(["init", "--dir", str(tmp_path)])
-    from vouch.config import load_config
-    from vouch.criteria import load_criteria
+    from juried.config import load_config
+    from juried.criteria import load_criteria
 
-    config = load_config(tmp_path / "vouch.toml", environ={})
+    config = load_config(tmp_path / "juried.toml", environ={})
     assert config.run.threshold == 0.7
     assert [c.id for c in load_criteria(config.criteria_path)] == [
         "opening-hours",
@@ -42,7 +42,7 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def write_project(directory: Path, url: str) -> None:
-    (directory / "vouch.toml").write_text(
+    (directory / "juried.toml").write_text(
         f'[target]\nurl = "{url}/chat"\n[run]\nruns = 3\nthreshold = 0.2\n'
         '[judge]\nprovider = "stub"\n'
     )
@@ -69,12 +69,12 @@ def test_generate_then_run(
         captured["args"] = args
         return 0
 
-    monkeypatch.setattr("vouch.cli.pytest.main", fake_pytest_main)
+    monkeypatch.setattr("juried.cli.pytest.main", fake_pytest_main)
     assert main(["run", "--runs", "5", "-k", "x", "--threshold", "0.3", "--no-cache", "-x"]) == 0
     args = captured["args"]
-    assert args[0] == f"--vouch-config={tmp_path / 'vouch.toml'}"
+    assert args[0] == f"--juried-config={tmp_path / 'juried.toml'}"
     assert args[1] == f"--rootdir={tmp_path}"
-    assert args[2:6] == ["-v", "--vouch-runs=5", "--vouch-threshold=0.3", "--vouch-no-cache"]
+    assert args[2:6] == ["-v", "--juried-runs=5", "--juried-threshold=0.3", "--juried-no-cache"]
     assert args[6] == str(tmp_path / "scenarios")
     assert args[7:] == ["-k", "x", "-x"]
     assert main(["run", "--", "scenarios"]) == 0
@@ -90,16 +90,16 @@ def test_run_end_to_end_in_subprocess(pytester: pytest.Pytester, fake_bot_url: s
         '    message: opening hours?\n    expected: Mentions "9am".\n'
         '  - name: Nonsense\n    message: blorp\n    expected: Mentions "9am".\n'
     )
-    result = pytester.run(sys.executable, "-m", "vouch.cli", "run", "--junitxml=out.xml")
+    result = pytester.run(sys.executable, "-m", "juried.cli", "run", "--junitxml=out.xml")
     assert result.ret == 1
     result.stdout.fnmatch_lines(
         [
             "*opening-hours-asks-hours PASSED 3/3 (lower 0.44 >= 0.20)*",
             "*opening-hours-nonsense FAILED 0/3 (lower 0.00 < 0.20)*",
-            "*2 scenarios, 1 passed the gate, 1 failed, 0 transport errors",
+            "*2 scenarios, 1 upheld, 1 failed, 0 transport errors",
         ]
     )
-    report = json.loads((pytester.path / "reports" / "vouch-report.json").read_text())
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
     assert report["summary"]["gates_failed"] == 1
     assert (pytester.path / "out.xml").is_file()
 
@@ -109,7 +109,7 @@ def test_missing_config_is_reported(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["generate"]) == 2
-    assert "no vouch.toml found" in capsys.readouterr().err
+    assert "no juried.toml found" in capsys.readouterr().err
     assert main(["run", "--config", str(tmp_path / "nope.toml")]) == 2
     assert "not found" in capsys.readouterr().err
     with pytest.raises(SystemExit):

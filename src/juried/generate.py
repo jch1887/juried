@@ -5,10 +5,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from vouch.config import Config
-from vouch.criteria import Criterion, slugify
-from vouch.judge.base import Provider
-from vouch.scenarios import (
+from juried.config import Config
+from juried.criteria import Criterion, slugify
+from juried.judge.base import Provider
+from juried.scenarios import (
     Scenario,
     ScenarioDraft,
     dump_scenario_file,

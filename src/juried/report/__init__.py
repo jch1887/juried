@@ -4,14 +4,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from vouch.config import Config
-from vouch.criteria import Criterion
-from vouch.report.html import render_html
-from vouch.report.json import build_report, write_json
-from vouch.runner import ScenarioResult
+from juried.config import Config
+from juried.criteria import Criterion
+from juried.report.html import render_html
+from juried.report.json import build_report, write_json
+from juried.runner import ScenarioResult
 
-JSON_NAME = "vouch-report.json"
-HTML_NAME = "vouch-report.html"
+JSON_NAME = "juried-report.json"
+HTML_NAME = "juried-report.html"
 
 
 @dataclass(frozen=True)

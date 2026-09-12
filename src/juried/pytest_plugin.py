@@ -6,19 +6,19 @@ from typing import Any
 
 import pytest
 
-from vouch.cache import Cache
-from vouch.config import Config, ConfigError, find_config, load_config
-from vouch.criteria import CriteriaError, Criterion, load_criteria
-from vouch.judge import build_provider
-from vouch.report import ReportPaths, write_reports
-from vouch.runner import Runner, RunRecord, ScenarioResult
-from vouch.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
-from vouch.stats import best_possible_lower_bound
+from juried.cache import Cache
+from juried.config import Config, ConfigError, find_config, load_config
+from juried.criteria import CriteriaError, Criterion, load_criteria
+from juried.judge import build_provider
+from juried.report import ReportPaths, write_reports
+from juried.runner import Runner, RunRecord, ScenarioResult
+from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
+from juried.stats import best_possible_lower_bound
 
 RESPONSE_EXCERPT = 1200
 
 
-class VouchState:
+class JuriedState:
     def __init__(self, config: Config, config_path: Path, cache_enabled: bool) -> None:
         self.config = config
         self.config_path = config_path
@@ -51,7 +51,7 @@ class VouchState:
         )
 
 
-STATE = pytest.StashKey[VouchState]()
+STATE = pytest.StashKey[JuriedState]()
 
 
 class GateFailure(Exception):
@@ -61,36 +61,36 @@ class GateFailure(Exception):
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    group = parser.getgroup("vouch", "vouch acceptance scenarios")
-    group.addoption("--vouch-config", default=None, help="path to vouch.toml")
-    group.addoption("--vouch-runs", type=int, default=None, help="override run.runs")
-    group.addoption("--vouch-threshold", type=float, default=None, help="override run.threshold")
+    group = parser.getgroup("juried", "juried acceptance scenarios")
+    group.addoption("--juried-config", default=None, help="path to juried.toml")
+    group.addoption("--juried-runs", type=int, default=None, help="override run.runs")
+    group.addoption("--juried-threshold", type=float, default=None, help="override run.threshold")
     group.addoption(
-        "--vouch-no-cache", action="store_true", help="ignore cached responses and verdicts"
+        "--juried-no-cache", action="store_true", help="ignore cached responses and verdicts"
     )
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "vouch: scenario collected by vouch")
-    config.addinivalue_line("markers", "criterion(id): acceptance criterion of a vouch scenario")
+    config.addinivalue_line("markers", "juried: scenario collected by juried")
+    config.addinivalue_line("markers", "criterion(id): acceptance criterion of a juried scenario")
     for kind in ("happy_path", "edge_case", "custom"):
-        config.addinivalue_line("markers", f"{kind}: kind of vouch scenario")
+        config.addinivalue_line("markers", f"{kind}: kind of juried scenario")
 
-    explicit = config.getoption("--vouch-config")
+    explicit = config.getoption("--juried-config")
     path = Path(explicit) if explicit else find_config(Path(config.invocation_params.dir))
     if path is None:
         return
     try:
-        vouch_config = load_config(path)
-        runs = config.getoption("--vouch-runs")
+        juried_config = load_config(path)
+        runs = config.getoption("--juried-runs")
         if runs is not None:
-            vouch_config.run.runs = runs
-        threshold = config.getoption("--vouch-threshold")
+            juried_config.run.runs = runs
+        threshold = config.getoption("--juried-threshold")
         if threshold is not None:
-            vouch_config.run.threshold = threshold
-        state = VouchState(vouch_config, path, not config.getoption("--vouch-no-cache"))
+            juried_config.run.threshold = threshold
+        state = JuriedState(juried_config, path, not config.getoption("--juried-no-cache"))
     except (ConfigError, CriteriaError) as exc:
-        raise pytest.UsageError(f"vouch: {exc}") from exc
+        raise pytest.UsageError(f"juried: {exc}") from exc
     config.stash[STATE] = state
 
 
@@ -100,13 +100,13 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
         return []
     run = state.config.run
     lines = [
-        f"vouch: config {state.config_path}, judge {state.config.judge.provider}/"
+        f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
         f"{state.config.judge.model}, runs {run.runs}, threshold {run.threshold}, "
         f"cache {'on' if state.cache.enabled else 'off'}"
     ]
     warning = state.gate_warning(run.runs, run.threshold)
     if warning:
-        lines.append(f"vouch: warning: {warning}")
+        lines.append(f"juried: warning: {warning}")
     return lines
 
 
@@ -141,7 +141,7 @@ class ScenarioItem(pytest.Item):
         super().__init__(**kwargs)
         self.scenario = scenario
         self.result: ScenarioResult | None = None
-        self.add_marker("vouch")
+        self.add_marker("juried")
         self.add_marker(scenario.kind)
         self.add_marker(pytest.mark.criterion(scenario.criterion))
 
@@ -173,7 +173,7 @@ class ScenarioItem(pytest.Item):
         return super().repr_failure(excinfo, style)
 
     def reportinfo(self) -> tuple[Path, int | None, str]:
-        return self.path, None, f"vouch scenario: {self.scenario.name}"
+        return self.path, None, f"juried scenario: {self.scenario.name}"
 
 
 def summarise(result: ScenarioResult) -> str:
@@ -209,10 +209,10 @@ def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
     return lines
 
 
-def format_gate_failure(result: ScenarioResult, state: VouchState) -> str:
+def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
     interval = result.interval
     lines = [
-        f"vouch gate failed for scenario {result.scenario.id!r} ({result.scenario.name})",
+        f"juried gate failed for scenario {result.scenario.id!r} ({result.scenario.name})",
         f"  criterion: {result.criterion.id} ({result.criterion.title})",
         f"  pass rate: {result.passes}/{result.total} = {result.pass_rate:.2f}",
         f"  Wilson 95% interval: [{interval.lower:.2f}, {interval.upper:.2f}]",
@@ -234,14 +234,14 @@ def pytest_runtest_makereport(
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     report = yield
     if call.when == "call" and isinstance(item, ScenarioItem) and item.result is not None:
-        report.vouch_summary = summarise(item.result)  # type: ignore[attr-defined]
+        report.juried_summary = summarise(item.result)  # type: ignore[attr-defined]
     return report
 
 
 def pytest_report_teststatus(
     report: pytest.CollectReport | pytest.TestReport, config: pytest.Config
 ) -> tuple[str, str, str] | None:
-    summary = getattr(report, "vouch_summary", None)
+    summary = getattr(report, "juried_summary", None)
     if summary is None or report.when != "call":
         return None
     if report.passed:
@@ -266,9 +266,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         return
     passed = sum(1 for result in state.results if result.gate_passed)
     errors = sum(result.transport_errors for result in state.results)
-    terminalreporter.write_sep("-", "vouch summary")
+    terminalreporter.write_sep("-", "juried summary")
     terminalreporter.write_line(
-        f"{len(state.results)} scenarios, {passed} passed the gate, "
+        f"{len(state.results)} scenarios, {passed} upheld, "
         f"{len(state.results) - passed} failed, {errors} transport errors"
     )
     if state.report_paths is not None:

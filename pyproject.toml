@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vouch"
+name = "juried"
 version = "0.1.0"
 description = "Acceptance testing for LLM features, built for QA teams."
 readme = "README.md"
@@ -26,13 +26,13 @@ dev = [
 ]
 
 [project.scripts]
-vouch = "vouch.cli:main"
+juried = "juried.cli:main"
 
 [project.entry-points.pytest11]
-vouch = "vouch.pytest_plugin"
+juried = "juried.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vouch"]
+packages = ["src/juried"]
 
 [tool.ruff]
 line-length = 100

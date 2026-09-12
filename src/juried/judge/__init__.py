@@ -1,8 +1,8 @@
-from vouch.config import ProviderName
-from vouch.judge.anthropic import AnthropicProvider
-from vouch.judge.base import LLMProvider, Provider, ProviderError, Verdict
-from vouch.judge.openai import OpenAIProvider
-from vouch.judge.stub import StubProvider
+from juried.config import ProviderName
+from juried.judge.anthropic import AnthropicProvider
+from juried.judge.base import LLMProvider, Provider, ProviderError, Verdict
+from juried.judge.openai import OpenAIProvider
+from juried.judge.stub import StubProvider
 
 
 def build_provider(

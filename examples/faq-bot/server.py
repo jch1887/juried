@@ -1,6 +1,6 @@
 """A deterministic stand in for an LLM backed FAQ bot, so the example runs without API keys.
 
-Run it with `python server.py` and point vouch at http://127.0.0.1:8765/chat. Every fourth
+Run it with `python server.py` and point juried at http://127.0.0.1:8765/chat. Every fourth
 refund question deliberately drops the 14 day detail, so that one scenario shows a flaky
 pass rate in the report.
 """

@@ -17,5 +17,5 @@ test:
 example:
 	cd examples/faq-bot && $(PYTHON) server.py & \
 	sleep 1; \
-	cd examples/faq-bot && vouch generate && vouch run; status=$$?; \
+	cd examples/faq-bot && juried generate && juried run; status=$$?; \
 	kill %1; exit $$status

@@ -5,16 +5,16 @@ from typing import Any
 import httpx
 import pytest
 
-from vouch.config import TargetConfig
-from vouch.scenarios import Turn
-from vouch.targets.http import (
+from juried.config import TargetConfig
+from juried.scenarios import Turn
+from juried.targets.http import (
     HttpTarget,
     TargetConfigError,
     expand_env,
     extract_path,
     render_body,
 )
-from vouch.transport import TransportFailure
+from juried.transport import TransportFailure
 
 
 def test_render_body_substitutes_placeholders() -> None:
@@ -98,7 +98,7 @@ def test_retries_on_transport_error_then_succeeds(monkeypatch: pytest.MonkeyPatc
     async def no_sleep(_: float) -> None:
         return None
 
-    monkeypatch.setattr("vouch.transport.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("juried.transport.asyncio.sleep", no_sleep)
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
@@ -133,7 +133,7 @@ def test_exhausted_retries_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_sleep(_: float) -> None:
         return None
 
-    monkeypatch.setattr("vouch.transport.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("juried.transport.asyncio.sleep", no_sleep)
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("slow")

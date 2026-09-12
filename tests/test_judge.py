@@ -5,12 +5,12 @@ from typing import Any
 import httpx
 import pytest
 
-from vouch.criteria import Criterion
-from vouch.judge import ProviderError, StubProvider, build_provider
-from vouch.judge.anthropic import AnthropicProvider, supports_temperature
-from vouch.judge.base import parse_json_object
-from vouch.judge.openai import OpenAIProvider
-from vouch.scenarios import Scenario
+from juried.criteria import Criterion
+from juried.judge import ProviderError, StubProvider, build_provider
+from juried.judge.anthropic import AnthropicProvider, supports_temperature
+from juried.judge.base import parse_json_object
+from juried.judge.openai import OpenAIProvider
+from juried.scenarios import Scenario
 
 CRITERION = Criterion("hours", "Opening hours", "States the hours, 9am to 5pm.")
 SCENARIO = Scenario(

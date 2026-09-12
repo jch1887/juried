@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from vouch.config import parse_config
-from vouch.criteria import Criterion
-from vouch.generate import generate_scenarios, output_path
-from vouch.judge import StubProvider
-from vouch.scenarios import load_scenarios
+from juried.config import parse_config
+from juried.criteria import Criterion
+from juried.generate import generate_scenarios, output_path
+from juried.judge import StubProvider
+from juried.scenarios import load_scenarios
 
 CRITERIA = [
     Criterion("hours", "Opening hours", "States the hours."),

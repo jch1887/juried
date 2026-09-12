@@ -9,10 +9,10 @@ from typing import Any
 
 import httpx
 
-from vouch.config import TargetConfig
-from vouch.scenarios import Turn
-from vouch.targets.base import TargetResponse
-from vouch.transport import TransportFailure, request_json
+from juried.config import TargetConfig
+from juried.scenarios import Turn
+from juried.targets.base import TargetResponse
+from juried.transport import TransportFailure, request_json
 
 MESSAGE_PLACEHOLDER = "{{message}}"
 HISTORY_PLACEHOLDER = "{{history}}"

@@ -18,7 +18,7 @@ model, and `juried calibrate` tells you how far to trust that model.
 pip install juried
 ```
 
-Python 3.12 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
+Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
 environment; nothing else is ever read from disk.
 
 ## Three commands
@@ -271,6 +271,9 @@ trust any judge, and swap `provider` for a real one when you have a key.
 make check      # ruff, mypy and pytest
 ```
 
-See CONTRIBUTING.md for the development install.
+The same target runs in CI on every pull request. A separate weekly workflow sends one
+real request per provider to check that the Anthropic and OpenAI APIs still accept what
+juried sends; see CONTRIBUTING.md for how to run it locally, and for the development
+install.
 
 Licensed under the MIT licence.

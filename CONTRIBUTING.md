@@ -9,8 +9,24 @@ make check
 ```
 
 `make check` runs ruff, mypy (strict) and the test suite. All three must be clean before
-a change is ready. `make example` starts the fake FAQ bot, generates scenarios and runs
-them end to end without API keys.
+a change is ready, and the `Check` workflow runs the same target on every pull request and
+push to `main`, on Python 3.11, 3.12 and 3.13, then builds the wheel that a release would
+publish. `make example` starts the fake FAQ bot, generates scenarios and runs them end to
+end without API keys.
+
+## Live provider tests
+
+The unit tests only assert what juried sends to Anthropic and OpenAI, never that either
+API still accepts it. `tests/test_live.py` sends one judge and one generate request per
+provider to the real API. It is deselected by default and runs with
+
+```
+JURIED_LIVE=1 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... pytest -m live
+```
+
+A missing key skips that provider. The `Live provider contract` workflow runs it weekly
+and on demand from the Actions tab, using the repository secrets `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY`. Run it before a release and after any change to a provider module.
 
 ## Layout
 

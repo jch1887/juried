@@ -1,0 +1,25 @@
+# Contract tests against the real Anthropic and OpenAI APIs. juried talks to both with hand
+# written HTTP requests, so this is the only thing that notices an upstream field change.
+# It costs a few cents per run, so it runs weekly and on demand rather than on every push.
+name: Live provider contract
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -m live -v
+        env:
+          JURIED_LIVE: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

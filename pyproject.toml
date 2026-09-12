@@ -9,7 +9,7 @@ description = "Acceptance testing for LLM features, built for QA teams."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENCE"]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 authors = [{ name = "jch1887" }]
 keywords = ["llm", "testing", "pytest", "qa", "acceptance-testing", "evaluation"]
 classifiers = [
@@ -17,7 +17,9 @@ classifiers = [
     "Framework :: Pytest",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
@@ -52,17 +54,20 @@ packages = ["src/juried"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p pytester"
+addopts = "-p pytester -m 'not live'"
+markers = [
+    "live: calls the real provider APIs; needs JURIED_LIVE=1 and the provider keys",
+]

@@ -102,8 +102,9 @@ def fenced(label: str, text: str) -> str:
 
 
 def judge_user_prompt(criterion: Criterion, scenario: Scenario, response_text: str) -> str:
+    criterion_text = f"{criterion.title}\n{criterion.description}"
     return (
-        f"{fenced('criterion', f'{criterion.title}\n{criterion.description}')}\n\n"
+        f"{fenced('criterion', criterion_text)}\n\n"
         f"Scenario: {scenario.name}\n"
         f"{fenced('history', format_history(scenario.history))}\n\n"
         f"{fenced('message', scenario.message)}\n\n"

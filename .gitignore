@@ -1,0 +1,12 @@
+.vouch/
+.venv/
+reports/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+examples/faq-bot/scenarios/generated/
+out.xml

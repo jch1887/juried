@@ -11,11 +11,11 @@ import httpx
 from juried.cache import Cache
 from juried.config import Config
 from juried.criteria import Criterion
-from juried.judge.base import Provider, Verdict, agreement, majority_verdict
+from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
 from juried.scenarios import Scenario
 from juried.stats import Interval, required_passes, wilson_interval
 from juried.targets.base import Target
-from juried.targets.http import HttpTarget
+from juried.targets.http import HttpTarget, TargetConfigError
 from juried.transport import TransportFailure
 
 TargetFactory = Callable[[httpx.AsyncClient], Target]
@@ -26,6 +26,7 @@ class RunRecord:
     attempt: int
     response: str | None = None
     error: str | None = None
+    judge_error: str | None = None
     verdict: Verdict | None = None
     votes: list[Verdict] = field(default_factory=list)
     response_cached: bool = False
@@ -44,19 +45,27 @@ class RunRecord:
         return agreement(self.votes, self.verdict) if self.votes else 1.0
 
     @property
+    def errored(self) -> bool:
+        return self.error is not None or self.judge_error is not None
+
+    @property
     def outcome(self) -> str:
         if self.error is not None:
             return "transport_error"
+        if self.judge_error is not None:
+            return "judge_error"
         return "pass" if self.passed else "fail"
 
     @property
     def label(self) -> str:
-        return self.outcome.replace("_", " ") if self.error is not None else "failed"
+        return self.outcome.replace("_", " ") if self.errored else "failed"
 
     @property
     def reason(self) -> str:
         if self.error is not None:
             return self.error
+        if self.judge_error is not None:
+            return self.judge_error
         return self.verdict.reason if self.verdict else ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -65,6 +74,7 @@ class RunRecord:
             "outcome": self.outcome,
             "response": self.response,
             "error": self.error,
+            "judge_error": self.judge_error,
             "verdict": self.verdict.to_dict() if self.verdict else None,
             "votes": [vote.to_dict() for vote in self.votes],
             "agreement": self.agreement,
@@ -113,16 +123,45 @@ class ScenarioResult:
         return sum(1 for run in self.runs if run.response_cached)
 
     @property
+    def judge_errors(self) -> int:
+        return sum(1 for run in self.runs if run.judge_error is not None)
+
+    @property
+    def errors(self) -> int:
+        return self.transport_errors + self.judge_errors
+
+    @property
+    def judged(self) -> int:
+        return self.total - self.errors
+
+    # Pass rate and interval describe the feature's quality, so they are computed over the
+    # attempts that reached a verdict. Attempts lost to transport or judge errors are counted
+    # separately and make the result incomplete rather than dragging the rate down.
+    @property
     def pass_rate(self) -> float:
-        return self.passes / self.total if self.total else 0.0
+        return self.passes / self.judged if self.judged else 0.0
 
     @property
     def interval(self) -> Interval:
-        return wilson_interval(self.passes, self.total)
+        return wilson_interval(self.passes, self.judged)
+
+    @property
+    def quality_met(self) -> bool:
+        return self.judged > 0 and self.interval.lower >= self.threshold
+
+    @property
+    def complete(self) -> bool:
+        return self.errors == 0
 
     @property
     def gate_passed(self) -> bool:
-        return self.total > 0 and self.interval.lower >= self.threshold
+        return self.complete and self.quality_met
+
+    @property
+    def status(self) -> str:
+        if not self.complete:
+            return "incomplete"
+        return "upheld" if self.quality_met else "failed"
 
     @property
     def required_passes(self) -> int | None:
@@ -161,14 +200,18 @@ class ScenarioResult:
             "tags": list(self.scenario.tags),
             "source": str(self.scenario.source) if self.scenario.source else None,
             "runs": self.total,
+            "judged": self.judged,
             "passes": self.passes,
             "transport_errors": self.transport_errors,
             "responses_from_cache": self.responses_from_cache,
+            "judge_errors": self.judge_errors,
             "pass_rate": round(self.pass_rate, 4),
             "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
             "threshold": self.threshold,
             "required_passes": self.required_passes,
+            "quality_met": self.quality_met,
             "gate_passed": self.gate_passed,
+            "status": self.status,
             "judge_agreement": self.judge_agreement,
             "split_verdicts": self.split_verdicts,
             "latency": self.latency.to_dict(),
@@ -209,13 +252,20 @@ class Runner:
         timeout = self.config.target.timeout_seconds
         async with httpx.AsyncClient(timeout=timeout) as client, self.provider:
             target = self.target_factory(client)
-            records = await asyncio.gather(
-                *(
-                    self._attempt(semaphore, target, scenario, criterion, attempt)
-                    for attempt in range(1, runs + 1)
-                )
-            )
-        return ScenarioResult(scenario, criterion, self.threshold_for(scenario), list(records))
+            try:
+                # A task group cancels the remaining attempts when one raises, so a
+                # configuration error stops the scenario instead of leaving tasks dangling.
+                async with asyncio.TaskGroup() as group:
+                    tasks = [
+                        group.create_task(
+                            self._attempt(semaphore, target, scenario, criterion, attempt)
+                        )
+                        for attempt in range(1, runs + 1)
+                    ]
+            except* TargetConfigError as failures:
+                raise failures.exceptions[0] from None
+            records = [task.result() for task in tasks]
+        return ScenarioResult(scenario, criterion, self.threshold_for(scenario), records)
 
     async def _attempt(
         self,
@@ -255,12 +305,17 @@ class Runner:
                         {"text": response.text, "status_code": response.status_code},
                     )
 
-            votes = await asyncio.gather(
-                *(
-                    self._vote(criterion, scenario, history, record.response, vote)
-                    for vote in range(1, self.config.judge.votes + 1)
+            try:
+                votes = await asyncio.gather(
+                    *(
+                        self._vote(criterion, scenario, history, record.response, vote)
+                        for vote in range(1, self.config.judge.votes + 1)
+                    )
                 )
-            )
+            except (ProviderError, TransportFailure) as exc:
+                record.judge_error = str(exc)
+                record.elapsed_ms = (time.perf_counter() - started) * 1000
+                return record
             record.votes = [verdict for verdict, _ in votes]
             record.verdict = majority_verdict(record.votes)
             record.verdict_cached = all(cached for _, cached in votes)

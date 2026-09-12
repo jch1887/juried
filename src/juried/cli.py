@@ -20,6 +20,7 @@ from juried.criteria import CriteriaError, load_criteria
 from juried.generate import generate_scenarios
 from juried.judge import ProviderError, build_provider
 from juried.scenarios import ScenarioError
+from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
 
 INIT_CONFIG = """# juried configuration. Any value can be overridden with an environment variable
@@ -283,6 +284,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ConfigError,
         CriteriaError,
         ScenarioError,
+        TargetConfigError,
         CalibrationError,
         ProviderError,
         TransportFailure,

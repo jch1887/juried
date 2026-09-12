@@ -52,11 +52,13 @@ def build_report(
                 "description": criterion.description,
                 "scenarios": scenarios,
                 "gates_passed": sum(1 for s in scenarios if s["gate_passed"]),
-                "gates_failed": sum(1 for s in scenarios if not s["gate_passed"]),
+                "gates_failed": sum(1 for s in scenarios if s["status"] == "failed"),
+                "incomplete": sum(1 for s in scenarios if s["status"] == "incomplete"),
             }
         )
 
     gates_passed = sum(1 for r in results if r.gate_passed)
+    incomplete = sum(1 for r in results if not r.complete)
     return {
         "tool": "juried",
         "version": __version__,
@@ -76,10 +78,12 @@ def build_report(
             "criteria": len(criteria_entries),
             "scenarios": len(results),
             "gates_passed": gates_passed,
-            "gates_failed": len(results) - gates_passed,
+            "gates_failed": len(results) - gates_passed - incomplete,
+            "incomplete": incomplete,
             "transport_errors": sum(r.transport_errors for r in results),
             "responses_from_cache": sum(r.responses_from_cache for r in results),
             "split_verdicts": sum(r.split_verdicts for r in results),
+            "judge_errors": sum(r.judge_errors for r in results),
             "criteria_without_scenarios": [
                 entry["id"] for entry in criteria_entries if not entry["scenarios"]
             ],

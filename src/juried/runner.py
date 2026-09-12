@@ -30,6 +30,7 @@ class RunRecord:
     response_cached: bool = False
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
+    response_ms: float | None = None
 
     @property
     def passed(self) -> bool:
@@ -57,6 +58,21 @@ class RunRecord:
             "response_cached": self.response_cached,
             "verdict_cached": self.verdict_cached,
             "elapsed_ms": round(self.elapsed_ms, 1),
+            "response_ms": None if self.response_ms is None else round(self.response_ms, 1),
+        }
+
+
+@dataclass(frozen=True)
+class Latency:
+    measured: int
+    mean_ms: float
+    max_ms: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "measured": self.measured,
+            "mean_ms": round(self.mean_ms, 1),
+            "max_ms": round(self.max_ms, 1),
         }
 
 
@@ -95,6 +111,13 @@ class ScenarioResult:
     def failures(self) -> list[RunRecord]:
         return [run for run in self.runs if not run.passed]
 
+    @property
+    def latency(self) -> Latency:
+        measured = [run.response_ms for run in self.runs if run.response_ms is not None]
+        if not measured:
+            return Latency(0, 0.0, 0.0)
+        return Latency(len(measured), sum(measured) / len(measured), max(measured))
+
     def to_dict(self) -> dict[str, Any]:
         interval = self.interval
         return {
@@ -114,6 +137,7 @@ class ScenarioResult:
             "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
             "threshold": self.threshold,
             "gate_passed": self.gate_passed,
+            "latency": self.latency.to_dict(),
             "attempts": [run.to_dict() for run in self.runs],
         }
 
@@ -186,6 +210,7 @@ class Runner:
                     record.elapsed_ms = (time.perf_counter() - started) * 1000
                     return record
                 record.response = response.text
+                record.response_ms = response.elapsed_ms
                 self.cache.put(
                     "responses",
                     response_key,

@@ -71,6 +71,7 @@
       <th class="num">Pass rate</th>
       <th class="num">95% interval</th>
       <th class="num">Threshold</th>
+      <th class="num">Latency</th>
       <th>Gate</th>
     </tr>
   </thead>
@@ -83,6 +84,7 @@
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num">{{ scenario.interval.lower | percent }} to {{ scenario.interval.upper | percent }}</td>
       <td class="num">{{ scenario.threshold | percent }}</td>
+      <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">cached</span>{% endif %}</td>
       <td class="{{ 'pass' if scenario.gate_passed else 'fail' }}">{{ 'pass' if scenario.gate_passed else 'fail' }}</td>
     </tr>
   {% endfor %}
@@ -99,7 +101,7 @@
   <p><span class="label">expected</span>{{ scenario.expected }}</p>
 </div>
 {% if scenario.failures %}
-<details{% if not scenario.gate_passed %} open{% endif %}>
+<details open>
   <summary>{{ scenario.failures | length }} failing run{{ 's' if scenario.failures | length != 1 else '' }}</summary>
   {% for failure in scenario.failures %}
   <div class="transcript">

@@ -48,11 +48,14 @@ def results() -> list[ScenarioResult]:
             REFUNDS,
             0.7,
             [
-                RunRecord(1, "Refunds within 14 days.", verdict=verdict(True, "ok")),
+                RunRecord(
+                    1, "Refunds within 14 days.", verdict=verdict(True, "ok"), response_ms=820.4
+                ),
                 RunRecord(
                     2,
                     "<script>alert(1)</script> Refunds are possible.",
                     verdict=verdict(False, "does not mention 14 days"),
+                    response_ms=1310.0,
                 ),
                 RunRecord(3, error="HTTP 500 from http://bot/chat: boom"),
             ],
@@ -91,6 +94,8 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert refunds["failures"][0]["judged_at"] == "2026-09-12T10:00:00+00:00"
     assert refunds["failures"][1]["outcome"] == "transport_error"
     assert refunds["failures"][1]["model"] is None
+    assert refunds["latency"] == {"measured": 2, "mean_ms": 1065.2, "max_ms": 1310.0}
+    assert scenario["latency"]["measured"] == 0
 
 
 class Checker(HTMLParser):
@@ -127,6 +132,10 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "1 / 3" in html
     assert "gates upheld" in html
     assert "44% to 100%" in html
+    assert "1065 ms" in html
+    assert "max 1310 ms" in html
+    assert html.count('<span class="meta">cached</span>') == 1
+    assert "<details open>" in html
     assert 'href="http' not in html
     assert '<p><span class="label">assistant</span>hello</p>' in html
 

@@ -9,7 +9,7 @@ import pytest
 from juried.cache import Cache
 from juried.config import parse_config
 from juried.criteria import Criterion
-from juried.judge import StubProvider
+from juried.judge import Provider, StubProvider, Verdict
 from juried.runner import Runner, ScenarioResult
 from juried.scenarios import Scenario, Turn
 from juried.targets.base import TargetResponse
@@ -53,6 +53,20 @@ class ScriptedTarget:
         return TargetResponse(reply, 200, 1.0)
 
 
+class SplitProvider(StubProvider):
+    """Fails every third verdict, so majorities and agreement can be checked."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+        self.calls += 1
+        if self.calls % 3 == 0:
+            return Verdict(False, "dissent", self.model, Verdict.now())
+        return await super().judge(criterion, scenario, response_text)
+
+
 def make_runner(
     tmp_path: Path,
     target: ScriptedTarget,
@@ -60,17 +74,20 @@ def make_runner(
     concurrency: int = 4,
     cache: bool = True,
     cache_responses: bool = False,
+    votes: int = 1,
+    provider: Provider | None = None,
 ) -> Runner:
     config = parse_config(
         f'[target]\nurl = "http://unused/"\n[run]\nruns = {runs}\nconcurrency = {concurrency}\n'
         f'cache_dir = "{tmp_path / ".juried"}"\n'
-        f"cache_responses = {'true' if cache_responses else 'false'}\n",
+        f"cache_responses = {'true' if cache_responses else 'false'}\n"
+        f'[judge]\nprovider = "stub"\nvotes = {votes}\n',
         tmp_path,
         environ={},
     )
     return Runner(
         config,
-        StubProvider(),
+        provider or StubProvider(),
         Cache(config.cache_path, enabled=cache),
         target_factory=lambda client: target,
     )
@@ -228,6 +245,59 @@ def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
     )
     assert result.transport_errors == 2
     assert not result.gate_passed
+
+
+def test_single_vote_records_full_agreement(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am."])
+    result = make_runner(tmp_path, target, runs=2).run(scenario(), CRITERION)
+    assert all(len(run.votes) == 1 and run.agreement == 1.0 for run in result.runs)
+    assert result.judge_agreement == 1.0
+    assert result.split_verdicts == 0
+    data = result.to_dict()
+    assert data["judge_agreement"] == 1.0
+    assert data["attempts"][0]["agreement"] == 1.0
+    assert len(data["attempts"][0]["votes"]) == 1
+
+
+def test_majority_of_votes_decides_and_splits_are_counted(tmp_path: Path) -> None:
+    # Two different responses, so the second attempt's votes are not served from the cache.
+    target = ScriptedTarget(["Open 9am.", "Open 9am!"])
+    provider = SplitProvider()
+    runner = make_runner(tmp_path, target, runs=2, concurrency=1, votes=3, provider=provider)
+    result = runner.run(scenario(), CRITERION)
+    assert provider.calls == 6
+    assert result.passes == 2
+    assert [len(run.votes) for run in result.runs] == [3, 3]
+    assert [run.agreement for run in result.runs] == [pytest.approx(2 / 3), pytest.approx(2 / 3)]
+    assert result.split_verdicts == 2
+    assert result.judge_agreement == pytest.approx(2 / 3)
+    assert all(run.verdict is not None and run.verdict.reason != "dissent" for run in result.runs)
+
+    log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()
+    assert json.loads(log[-1])["votes"] == 3
+    assert json.loads(log[-1])["agreement"] == pytest.approx(2 / 3)
+    verdicts = list((tmp_path / ".juried" / "cache" / "verdicts").glob("*.json"))
+    assert len(verdicts) == 6
+
+    again = runner.run(scenario(), CRITERION)
+    assert provider.calls == 6
+    assert all(run.verdict_cached for run in again.runs)
+    assert again.split_verdicts == 2
+
+
+def test_majority_can_fail_a_passing_stub(tmp_path: Path) -> None:
+    class Dissenter(StubProvider):
+        async def judge(
+            self, criterion: Criterion, scenario: Scenario, response_text: str
+        ) -> Verdict:
+            return Verdict(False, "always no", self.model, Verdict.now())
+
+    target = ScriptedTarget(["Open 9am."])
+    runner = make_runner(tmp_path, target, runs=1, votes=3, provider=Dissenter())
+    result = runner.run(scenario(), CRITERION)
+    assert result.passes == 0
+    assert result.runs[0].agreement == 1.0
+    assert result.runs[0].reason == "always no"
 
 
 def test_result_dict_shape(tmp_path: Path) -> None:

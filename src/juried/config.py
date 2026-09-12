@@ -33,6 +33,7 @@ class TargetConfig(StrictModel):
 class CriteriaConfig(StrictModel):
     file: Path = Path("acceptance.md")
     scenarios_dir: Path = Path("scenarios")
+    calibration_dir: Path = Path("calibration")
 
 
 class RunConfig(StrictModel):
@@ -50,12 +51,19 @@ class JudgeConfig(StrictModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int = Field(default=2048, ge=1)
     base_url: str | None = None
+    votes: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def stub_has_no_model(self) -> JudgeConfig:
         if self.provider == "stub":
             self.model = "stub"
             self.temperature = None
+        return self
+
+    @model_validator(mode="after")
+    def votes_are_odd(self) -> JudgeConfig:
+        if self.votes % 2 == 0:
+            raise ValueError("judge.votes must be odd so that a majority always exists")
         return self
 
 
@@ -93,6 +101,10 @@ class Config(StrictModel):
     @property
     def scenarios_path(self) -> Path:
         return self.resolve(self.criteria.scenarios_dir)
+
+    @property
+    def calibration_path(self) -> Path:
+        return self.resolve(self.criteria.calibration_dir)
 
     @property
     def cache_path(self) -> Path:

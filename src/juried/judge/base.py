@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
@@ -47,6 +48,18 @@ class Verdict:
         return cls(
             bool(data["passed"]), str(data["reason"]), str(data["model"]), str(data["judged_at"])
         )
+
+
+def majority_verdict(votes: Sequence[Verdict]) -> Verdict:
+    passes = sum(1 for vote in votes if vote.passed)
+    passed = passes * 2 > len(votes)
+    # The reason shown is the first vote on the winning side, so it explains the outcome.
+    winner = next(vote for vote in votes if vote.passed == passed)
+    return Verdict(passed, winner.reason, winner.model, winner.judged_at)
+
+
+def agreement(votes: Sequence[Verdict], verdict: Verdict) -> float:
+    return sum(1 for vote in votes if vote.passed == verdict.passed) / len(votes)
 
 
 class Provider(ABC):

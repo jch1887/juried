@@ -1,6 +1,13 @@
 from juried.config import ProviderName
 from juried.judge.anthropic import AnthropicProvider
-from juried.judge.base import LLMProvider, Provider, ProviderError, Verdict
+from juried.judge.base import (
+    LLMProvider,
+    Provider,
+    ProviderError,
+    Verdict,
+    agreement,
+    majority_verdict,
+)
 from juried.judge.openai import OpenAIProvider
 from juried.judge.stub import StubProvider
 
@@ -29,5 +36,7 @@ __all__ = [
     "ProviderError",
     "StubProvider",
     "Verdict",
+    "agreement",
     "build_provider",
+    "majority_verdict",
 ]

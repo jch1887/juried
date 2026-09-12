@@ -11,7 +11,7 @@ import httpx
 from juried.cache import Cache
 from juried.config import Config
 from juried.criteria import Criterion
-from juried.judge.base import Provider, Verdict
+from juried.judge.base import Provider, Verdict, agreement, majority_verdict
 from juried.scenarios import Scenario
 from juried.stats import Interval, required_passes, wilson_interval
 from juried.targets.base import Target
@@ -27,6 +27,7 @@ class RunRecord:
     response: str | None = None
     error: str | None = None
     verdict: Verdict | None = None
+    votes: list[Verdict] = field(default_factory=list)
     response_cached: bool = False
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
@@ -35,6 +36,12 @@ class RunRecord:
     @property
     def passed(self) -> bool:
         return self.verdict is not None and self.verdict.passed
+
+    @property
+    def agreement(self) -> float | None:
+        if self.verdict is None:
+            return None
+        return agreement(self.votes, self.verdict) if self.votes else 1.0
 
     @property
     def outcome(self) -> str:
@@ -59,6 +66,8 @@ class RunRecord:
             "response": self.response,
             "error": self.error,
             "verdict": self.verdict.to_dict() if self.verdict else None,
+            "votes": [vote.to_dict() for vote in self.votes],
+            "agreement": self.agreement,
             "response_cached": self.response_cached,
             "verdict_cached": self.verdict_cached,
             "elapsed_ms": round(self.elapsed_ms, 1),
@@ -124,6 +133,15 @@ class ScenarioResult:
         return [run for run in self.runs if not run.passed]
 
     @property
+    def judge_agreement(self) -> float | None:
+        judged = [run.agreement for run in self.runs if run.agreement is not None]
+        return sum(judged) / len(judged) if judged else None
+
+    @property
+    def split_verdicts(self) -> int:
+        return sum(1 for run in self.runs if run.agreement is not None and run.agreement < 1.0)
+
+    @property
     def latency(self) -> Latency:
         measured = [run.response_ms for run in self.runs if run.response_ms is not None]
         if not measured:
@@ -151,6 +169,8 @@ class ScenarioResult:
             "threshold": self.threshold,
             "required_passes": self.required_passes,
             "gate_passed": self.gate_passed,
+            "judge_agreement": self.judge_agreement,
+            "split_verdicts": self.split_verdicts,
             "latency": self.latency.to_dict(),
             "attempts": [run.to_dict() for run in self.runs],
         }
@@ -235,23 +255,15 @@ class Runner:
                         {"text": response.text, "status_code": response.status_code},
                     )
 
-            verdict_key = Cache.key(
-                "verdict",
-                self.provider.fingerprint(),
-                criterion.id,
-                criterion.description,
-                scenario.message,
-                history,
-                scenario.expected,
-                record.response,
+            votes = await asyncio.gather(
+                *(
+                    self._vote(criterion, scenario, history, record.response, vote)
+                    for vote in range(1, self.config.judge.votes + 1)
+                )
             )
-            cached_verdict = self.cache.get("verdicts", verdict_key)
-            if cached_verdict is not None:
-                record.verdict = Verdict.from_dict(cached_verdict)
-                record.verdict_cached = True
-            else:
-                record.verdict = await self.provider.judge(criterion, scenario, record.response)
-                self.cache.put("verdicts", verdict_key, record.verdict.to_dict())
+            record.votes = [verdict for verdict, _ in votes]
+            record.verdict = majority_verdict(record.votes)
+            record.verdict_cached = all(cached for _, cached in votes)
         record.elapsed_ms = (time.perf_counter() - started) * 1000
         self.cache.append_log(
             "verdicts",
@@ -261,7 +273,35 @@ class Runner:
                 "attempt": attempt,
                 "cached": record.verdict_cached,
                 "temperature": self.provider.temperature,
+                "votes": len(record.votes),
+                "agreement": record.agreement,
                 **record.verdict.to_dict(),
             },
         )
         return record
+
+    async def _vote(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        history: list[dict[str, str]],
+        response: str,
+        vote: int,
+    ) -> tuple[Verdict, bool]:
+        key = Cache.key(
+            "verdict",
+            self.provider.fingerprint(),
+            criterion.id,
+            criterion.description,
+            scenario.message,
+            history,
+            scenario.expected,
+            response,
+            vote,
+        )
+        cached = self.cache.get("verdicts", key)
+        if cached is not None:
+            return Verdict.from_dict(cached), True
+        verdict = await self.provider.judge(criterion, scenario, response)
+        self.cache.put("verdicts", key, verdict.to_dict())
+        return verdict, False

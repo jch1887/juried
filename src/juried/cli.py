@@ -9,6 +9,12 @@ from pathlib import Path
 import pytest
 
 from juried import __version__
+from juried.calibrate import (
+    CalibrationError,
+    load_calibration,
+    run_calibration,
+    write_calibration_report,
+)
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, load_criteria
 from juried.generate import generate_scenarios
@@ -34,6 +40,9 @@ timeout_seconds = 30
 [criteria]
 file = "acceptance.md"
 scenarios_dir = "scenarios"
+# Human labelled responses for 'juried calibrate', which measures how often the judge
+# agrees with your team.
+calibration_dir = "calibration"
 
 [run]
 # Each scenario runs this many times. Its gate passes when the lower bound of the
@@ -59,6 +68,9 @@ provider = "anthropic"
 model = "claude-sonnet-5"
 # Set temperature only for a model that accepts it; claude-sonnet-5 rejects the parameter.
 # temperature = 0.0
+# Each response is judged once. Set an odd number above 1 to judge it that many times and
+# take the majority; the report then shows how often the votes split.
+votes = 1
 
 [generate]
 # provider and model default to the judge settings.
@@ -99,6 +111,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--criterion", action="append", metavar="ID", help="only this criterion (repeatable)"
     )
     generate.add_argument("--force", action="store_true", help="overwrite generated files")
+
+    calibrate = commands.add_parser(
+        "calibrate", help="judge human labelled responses and report how often the judge agrees"
+    )
+    calibrate.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
+    calibrate.add_argument(
+        "--min-accuracy",
+        type=float,
+        metavar="RATE",
+        help="exit with status 1 when the judge agrees with fewer labels than this fraction",
+    )
 
     run = commands.add_parser("run", help="run scenarios with pytest and write the report")
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
@@ -179,6 +202,42 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
     return 0
 
 
+def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
+    _, config = locate_config(explicit)
+    criteria = load_criteria(config.criteria_path)
+    cases = load_calibration(config.calibration_path, {c.id: c for c in criteria})
+    judge = config.judge
+    provider = build_provider(
+        judge.provider, judge.model, judge.temperature, judge.max_tokens, judge.base_url
+    )
+    votes = f", {judge.votes} votes each" if judge.votes > 1 else ""
+    print(
+        f"calibrating {provider.name}/{provider.model} against {len(cases)} labelled "
+        f"response(s){votes}"
+    )
+    result = run_calibration(config, criteria, provider, cases)
+    for outcome in result.disagreements:
+        note = f" [{outcome.case.note}]" if outcome.case.note else ""
+        print(
+            f"  {outcome.kind.replace('_', ' ')}: {outcome.case.id}: human says "
+            f"{outcome.case.verdict}, judge says {outcome.to_dict()['judge']}: "
+            f"{outcome.verdict.reason}{note}"
+        )
+    print(
+        f"judge agreed with the human label on {result.agreed}/{result.total} "
+        f"({result.accuracy:.2f}): {result.false_passes} false pass(es), "
+        f"{result.false_fails} false fail(s)"
+    )
+    if judge.votes > 1:
+        print(f"judge votes were unanimous on {result.unanimous}/{result.total}")
+    path = write_calibration_report(result, config.report_path)
+    print(f"calibration: {path}")
+    if min_accuracy is not None and result.accuracy < min_accuracy:
+        print(f"juried: judge accuracy {result.accuracy:.2f} is below {min_accuracy:.2f}")
+        return 1
+    return 0
+
+
 def command_run(
     explicit: str | None,
     runs: int | None,
@@ -215,10 +274,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_init(Path(args.dir), args.force)
         if args.command == "generate":
             return command_generate(args.config, args.criterion, args.force)
+        if args.command == "calibrate":
+            return command_calibrate(args.config, args.min_accuracy)
         return command_run(
             args.config, args.runs, args.threshold, args.no_cache, args.cache_responses, extra
         )
-    except (ConfigError, CriteriaError, ScenarioError, ProviderError, TransportFailure) as exc:
+    except (
+        ConfigError,
+        CriteriaError,
+        ScenarioError,
+        CalibrationError,
+        ProviderError,
+        TransportFailure,
+    ) as exc:
         print(f"juried: {exc}", file=sys.stderr)
         return 2
 

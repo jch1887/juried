@@ -106,9 +106,10 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     if state is None:
         return []
     run = state.config.run
+    votes = f" ({state.config.judge.votes} votes)" if state.config.judge.votes > 1 else ""
     lines = [
         f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
-        f"{state.config.judge.model}, runs {run.runs}, threshold {run.threshold}, "
+        f"{state.config.judge.model}{votes}, runs {run.runs}, threshold {run.threshold}, "
         f"cache {cache_mode(state)}"
     ]
     if state.cache.enabled and state.config.run.cache_responses:
@@ -208,6 +209,8 @@ def summarise(result: ScenarioResult) -> str:
         text += f" with {result.transport_errors} transport error(s)"
     if result.responses_from_cache:
         text += f" [{result.responses_from_cache} response(s) replayed from cache]"
+    if result.split_verdicts:
+        text += f", judge split on {result.split_verdicts}"
     return text
 
 
@@ -229,7 +232,11 @@ def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
     else:
         lines.append(f"    response: {excerpt(record.response)}")
         if record.verdict is not None:
-            lines.append(f"    judge ({record.verdict.model}): {record.verdict.reason}")
+            votes = ""
+            if len(record.votes) > 1:
+                agreed = sum(1 for vote in record.votes if vote.passed == record.verdict.passed)
+                votes = f", {agreed} of {len(record.votes)} votes"
+            lines.append(f"    judge ({record.verdict.model}{votes}): {record.verdict.reason}")
     return lines
 
 

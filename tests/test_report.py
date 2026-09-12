@@ -70,7 +70,12 @@ def config(tmp_path: Path) -> Config:
 def test_build_report_structure(tmp_path: Path) -> None:
     report = build_report(config(tmp_path), [HOURS, REFUNDS, UNCOVERED], results())
     assert report["tool"] == "juried"
-    assert report["judge"] == {"provider": "stub", "model": "stub", "temperature": None}
+    assert report["judge"] == {
+        "provider": "stub",
+        "model": "stub",
+        "temperature": None,
+        "votes": 1,
+    }
     assert report["summary"] == {
         "criteria": 3,
         "scenarios": 2,
@@ -78,6 +83,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "gates_failed": 1,
         "transport_errors": 1,
         "responses_from_cache": 0,
+        "split_verdicts": 0,
         "criteria_without_scenarios": ["tone"],
     }
     assert [c["id"] for c in report["criteria"]] == ["hours", "refunds", "tone"]
@@ -97,6 +103,9 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert refunds["failures"][0]["judged_at"] == "2026-09-12T10:00:00+00:00"
     assert refunds["failures"][1]["outcome"] == "transport_error"
     assert refunds["failures"][1]["model"] is None
+    assert refunds["failures"][0]["agreement"] == 1.0
+    assert refunds["failures"][1]["agreement"] is None
+    assert refunds["judge_agreement"] == 1.0
     assert refunds["latency"] == {"measured": 2, "mean_ms": 1065.2, "max_ms": 1310.0}
     assert scenario["latency"]["measured"] == 0
 
@@ -134,7 +143,8 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "Criteria with no scenarios: tone." in html
     assert "1 / 3" in html
     assert "gates upheld" in html
-    assert "temperature not set" in html
+    assert "temperature not set, one verdict per response" in html
+    assert "split verdicts" not in html
     assert '<th class="num">Lower bound</th>' in html
     assert '<td class="num bound">44%</td>' in html
     assert '40%<br><span class="meta">needs 3 / 3</span>' in html

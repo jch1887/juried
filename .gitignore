@@ -10,3 +10,4 @@ dist/
 .pytest_cache/
 examples/faq-bot/scenarios/generated/
 out.xml
+.env

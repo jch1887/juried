@@ -36,7 +36,9 @@ review and edit the generated YAML, commit it, and `run` never touches it.
 ## Configuration
 
 `juried.toml` lives at the repo root. Any key can be overridden with an environment
-variable named `JURIED_<SECTION>_<KEY>`, such as `JURIED_RUN_RUNS=20`.
+variable named `JURIED_<SECTION>_<KEY>`, such as `JURIED_RUN_RUNS=20`. `.env.example`
+lists every variable juried reads, including the provider keys and the overrides;
+copy it to `.env` and export it from your shell, since juried does not load it itself.
 
 ```toml
 [target]

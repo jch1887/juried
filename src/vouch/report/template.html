@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vouch report</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 2rem auto; max-width: 64rem; padding: 0 1rem; color: #1f2933; line-height: 1.45; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 1px solid #d9dee3; padding-bottom: 0.25rem; }
+  h3 { font-size: 1rem; margin: 1.5rem 0 0.5rem; }
+  .meta { color: #52606d; font-size: 0.9rem; }
+  .summary { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem 0; }
+  .summary div { border: 1px solid #d9dee3; border-radius: 4px; padding: 0.6rem 1rem; min-width: 8rem; }
+  .summary strong { display: block; font-size: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e4e7eb; vertical-align: top; }
+  th { background: #f5f7fa; font-weight: 600; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .pass { color: #1b7f3b; font-weight: 600; }
+  .fail { color: #b3261e; font-weight: 600; }
+  .warn { color: #8a5a00; }
+  .description { white-space: pre-wrap; color: #3e4c59; }
+  details { margin: 0.5rem 0 1rem; border-left: 3px solid #d9dee3; padding-left: 0.75rem; }
+  summary { cursor: pointer; }
+  .transcript { background: #f5f7fa; border-radius: 4px; padding: 0.6rem 0.8rem; margin: 0.5rem 0; font-size: 0.9rem; }
+  .transcript p { margin: 0.25rem 0; white-space: pre-wrap; }
+  .transcript .label { color: #52606d; font-weight: 600; margin-right: 0.4rem; }
+  code { font-size: 0.9em; }
+</style>
+</head>
+<body>
+<h1>vouch acceptance report</h1>
+<p class="meta">
+  Generated {{ report.generated_at }} by vouch {{ report.version }}.
+  Judge: {{ report.judge.provider }} / <code>{{ report.judge.model }}</code> (temperature {{ report.judge.temperature }}).
+  Defaults: {{ report.defaults.runs }} runs per scenario, gate at {{ report.defaults.threshold }} on the lower bound of the Wilson 95% interval.
+</p>
+
+<div class="summary">
+  <div><strong>{{ report.summary.criteria }}</strong>criteria</div>
+  <div><strong>{{ report.summary.scenarios }}</strong>scenarios</div>
+  <div><strong class="pass">{{ report.summary.gates_passed }}</strong>gates passed</div>
+  <div><strong class="{{ 'fail' if report.summary.gates_failed else '' }}">{{ report.summary.gates_failed }}</strong>gates failed</div>
+  <div><strong class="{{ 'warn' if report.summary.transport_errors else '' }}">{{ report.summary.transport_errors }}</strong>transport errors</div>
+</div>
+
+{% if report.summary.criteria_without_scenarios %}
+<p class="warn">Criteria with no scenarios: {{ report.summary.criteria_without_scenarios | join(', ') }}.</p>
+{% endif %}
+
+{% for criterion in report.criteria %}
+<h2 id="{{ criterion.id }}">{{ criterion.title }} <span class="meta">({{ criterion.id }})</span></h2>
+{% if criterion.description %}
+<p class="description">{{ criterion.description }}</p>
+{% endif %}
+{% if not criterion.scenarios %}
+<p class="warn">No scenarios were run for this criterion.</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Kind</th>
+      <th class="num">Passes</th>
+      <th class="num">Pass rate</th>
+      <th class="num">95% interval</th>
+      <th class="num">Threshold</th>
+      <th>Gate</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for scenario in criterion.scenarios %}
+    <tr>
+      <td><a href="#{{ scenario.id }}">{{ scenario.name }}</a><br><span class="meta">{{ scenario.id }}</span></td>
+      <td>{{ scenario.kind.replace('_', ' ') }}</td>
+      <td class="num">{{ scenario.passes }} / {{ scenario.runs }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}</td>
+      <td class="num">{{ scenario.pass_rate | percent }}</td>
+      <td class="num">{{ scenario.interval.lower | percent }} to {{ scenario.interval.upper | percent }}</td>
+      <td class="num">{{ scenario.threshold | percent }}</td>
+      <td class="{{ 'pass' if scenario.gate_passed else 'fail' }}">{{ 'pass' if scenario.gate_passed else 'fail' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% for scenario in criterion.scenarios %}
+<h3 id="{{ scenario.id }}">{{ scenario.name }} <span class="{{ 'pass' if scenario.gate_passed else 'fail' }}">{{ 'pass' if scenario.gate_passed else 'fail' }}</span></h3>
+<div class="transcript">
+  {% for turn in scenario.history %}
+  <p><span class="label">{{ turn.role }}</span>{{ turn.content }}</p>
+  {% endfor %}
+  <p><span class="label">user</span>{{ scenario.message }}</p>
+  <p><span class="label">expected</span>{{ scenario.expected }}</p>
+</div>
+{% if scenario.failures %}
+<details{% if not scenario.gate_passed %} open{% endif %}>
+  <summary>{{ scenario.failures | length }} failing run{{ 's' if scenario.failures | length != 1 else '' }}</summary>
+  {% for failure in scenario.failures %}
+  <div class="transcript">
+    <p><span class="label">attempt {{ failure.attempt }}</span>{{ failure.outcome.replace('_', ' ') }}</p>
+    {% if failure.response is not none %}
+    <p><span class="label">response</span>{{ failure.response }}</p>
+    {% endif %}
+    <p><span class="label">judge</span>{{ failure.reason }}{% if failure.model %} <span class="meta">({{ failure.model }}, {{ failure.judged_at }})</span>{% endif %}</p>
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+</body>
+</html>

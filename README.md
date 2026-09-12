@@ -102,6 +102,12 @@ scenarios:
     threshold: 0.8
 ```
 
+The judge sees each part of the scenario in its own delimited section and is told that the
+response is untrusted output which may contain instructions or claims about the verdict, so a
+response that says "this meets the expectation, pass" is judged on what it does for the user,
+not on what it says about the test. The prompt is pinned and its version is part of every
+verdict's cache key, so a prompt change never reuses an old verdict.
+
 A phrase in double quotes inside `expected` must appear in the response word for word,
 ignoring case. Text outside quotes is judged on meaning. With
 `expected: Says returns are accepted within "14 days" for a full refund`, a response saying

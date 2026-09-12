@@ -67,17 +67,19 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
             r"\s+criterion: refund-policy \(Refund policy\)",
-            r"\s+runs upheld: 0/4 = 0.00",
+            r"\s+runs upheld: 0/4 judged = 0.00",
             r"\s+lower bound: 0.00 \(Wilson 95% interval 0.00 to 0.49\)",
-            r"\s+threshold: 0.50, gate upheld when the lower bound meets it",
+            r"\s+threshold: 0.50, gate upheld when the lower bound meets it \(not met on the "
+            r"judged attempts\)",
             r"\s+transport errors: 0",
+            r"\s+judge errors: 0",
             r"\s+note: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\); "
             r"4 of 4 runs had to pass and 0 did",
             r"\s+first failing run: attempt 1 \(failed\)",
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
             r"\s+judge \(stub\): response does not mention '14 days'",
-            r"2 scenarios, 1 upheld, 1 failed, 0 transport errors",
+            r"2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
             r"report: .*juried-report.html",
         ]
     )
@@ -122,7 +124,7 @@ def test_junit_xml(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     assert set(cases) == {"refund-policy-asks-nonsense", "opening-hours-asks-hours"}
     failure = cases["refund-policy-asks-nonsense"].find("failure")
     assert failure is not None
-    assert "runs upheld: 0/4" in (failure.get("message") or "") + (failure.text or "")
+    assert "runs upheld: 0/4 judged" in (failure.get("message") or "") + (failure.text or "")
     properties = {
         p.get("name"): p.get("value") for p in cases["opening-hours-asks-hours"].iter("property")
     }
@@ -190,12 +192,51 @@ def test_transport_errors_reported(pytester: pytest.Pytester, fake_bot_url: str)
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "*FAILED 0/4 (lower 0.00 < 0.50) with 4 transport error(s)*",
+            "*FAILED incomplete: 0/0 judged of 4 (lower 0.00 < 0.50) with 4 transport error(s)*",
+            "juried could not complete scenario 'opening-hours-asks-hours' (Asks hours): "
+            "4 of 4 attempts ended in 4 transport error(s)",
+            "  these attempts are not counted in the pass rate; fix the endpoint or judge "
+            "and run again",
+            "*runs upheld: 0/0 judged = 0.00",
             "*transport errors: 4",
+            "*judge errors: 0",
             "*first failing run: attempt 1 (transport error)",
             "*transport error: HTTP 500 from *",
+            "1 scenarios, 0 upheld, 0 failed, 1 incomplete, 4 transport errors, 0 judge errors",
         ]
     )
+
+
+def test_unset_header_variable_is_usage_error(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url)
+    (pytester.path / "juried.toml").write_text(
+        (pytester.path / "juried.toml")
+        .read_text()
+        .replace(
+            "retries = 0", 'retries = 0\nheaders = { Authorization = "Bearer ${JURIED_TEST_NOPE}" }'
+        )
+    )
+    result = pytester.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(
+        ["*juried: header refers to unset environment variable JURIED_TEST_NOPE"]
+    )
+
+
+def test_bad_response_path_is_one_clear_failure(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    (pytester.path / "juried.toml").write_text(
+        (pytester.path / "juried.toml")
+        .read_text()
+        .replace("retries = 0", 'retries = 0\nresponse_path = "answer"')
+    )
+    result = pytester.runpytest("-k", "hours")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*juried: response_path 'answer': key 'answer' not found in *"])
+    assert "Traceback" not in result.stdout.str()
+    assert "ExceptionGroup" not in result.stdout.str()
 
 
 def test_unknown_criterion_is_collection_error(

@@ -21,6 +21,7 @@
   td.num, th.num { text-align: right; white-space: nowrap; }
   .upheld { color: #0d3b25; font-weight: 600; }
   .failed { color: #b3261e; font-weight: 600; }
+  .incomplete { color: #8a5a00; font-weight: 600; }
   td.bound { font-weight: 700; }
   .rule { margin: 0 0 1rem; }
   .warn { color: #8a5a00; }
@@ -49,7 +50,9 @@
   <div><strong>{{ report.summary.scenarios }}</strong>scenarios</div>
   <div><strong class="upheld">{{ report.summary.gates_passed }}</strong>gates upheld</div>
   <div><strong class="{{ 'failed' if report.summary.gates_failed else '' }}">{{ report.summary.gates_failed }}</strong>gates failed</div>
+  <div><strong class="{{ 'incomplete' if report.summary.incomplete else '' }}">{{ report.summary.incomplete }}</strong>incomplete</div>
   <div><strong class="{{ 'warn' if report.summary.transport_errors else '' }}">{{ report.summary.transport_errors }}</strong>transport errors</div>
+  <div><strong class="{{ 'warn' if report.summary.judge_errors else '' }}">{{ report.summary.judge_errors }}</strong>judge errors</div>
   {% if report.summary.responses_from_cache %}
   <div><strong class="failed">{{ report.summary.responses_from_cache }}</strong>responses replayed from cache</div>
   {% endif %}
@@ -79,7 +82,7 @@
     <tr>
       <th>Scenario</th>
       <th>Kind</th>
-      <th class="num">Runs upheld</th>
+      <th class="num">Runs upheld / judged</th>
       <th class="num">Rate</th>
       <th class="num">Lower bound</th>
       <th class="num">Threshold</th>
@@ -93,21 +96,21 @@
     <tr>
       <td><a href="#{{ scenario.id }}">{{ scenario.name }}</a></td>
       <td>{{ scenario.kind.replace('_', ' ') }}</td>
-      <td class="num">{{ scenario.passes }} / {{ scenario.runs }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.split_verdicts %}<br><span class="warn">{{ scenario.split_verdicts }} split</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
+      <td class="num">{{ scenario.passes }} / {{ scenario.judged }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.judge_errors %}<br><span class="warn">{{ scenario.judge_errors }} judge</span>{% endif %}{% if scenario.split_verdicts %}<br><span class="warn">{{ scenario.split_verdicts }} split</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num bound">{{ scenario.interval.lower | percent }}</td>
       <td class="num">{{ scenario.threshold | percent }}<br><span class="meta">{% if scenario.required_passes is none %}unattainable{% else %}needs {{ scenario.required_passes }} / {{ scenario.runs }}{% endif %}</span></td>
       <td class="num">{{ scenario.interval.upper | percent }}</td>
       <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">not measured</span>{% endif %}</td>
-      <td class="{{ 'upheld' if scenario.gate_passed else 'failed' }}">{{ 'upheld' if scenario.gate_passed else 'failed' }}</td>
+      <td class="{{ scenario.status }}">{{ scenario.status }}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold. The threshold is not a pass rate: the "needs" figure under it is the number of runs that must pass.</p>
+<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold. The threshold is not a pass rate: the "needs" figure under it is the number of runs that must pass. The rate and interval count only attempts that reached a verdict; a scenario with transport or judge errors is incomplete, whatever its rate.</p>
 
 {% for scenario in criterion.scenarios %}
-<h3 id="{{ scenario.id }}">{{ scenario.name }} <span class="meta">({{ scenario.id }})</span> <span class="{{ 'upheld' if scenario.gate_passed else 'failed' }}">{{ 'upheld' if scenario.gate_passed else 'failed' }}</span></h3>
+<h3 id="{{ scenario.id }}">{{ scenario.name }} <span class="meta">({{ scenario.id }})</span> <span class="{{ scenario.status }}">{{ scenario.status }}</span></h3>
 <div class="transcript">
   {% for turn in scenario.history %}
   <p><span class="label">{{ turn.role }}</span>{{ turn.content }}</p>
@@ -120,7 +123,7 @@
   <summary>{{ scenario.failures | length }} failing run{{ 's' if scenario.failures | length != 1 else '' }}</summary>
   {% for failure in scenario.failures %}
   <div class="transcript">
-    <p><span class="label">attempt {{ failure.attempt }}</span>{{ 'transport error' if failure.outcome == 'transport_error' else 'failed' }}</p>
+    <p><span class="label">attempt {{ failure.attempt }}</span>{{ failure.outcome.replace('_', ' ') if failure.outcome.endswith('error') else 'failed' }}</p>
     {% if failure.response is not none %}
     <p><span class="label">response</span>{{ failure.response }}</p>
     {% endif %}

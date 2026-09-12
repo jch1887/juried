@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
 from juried.stats import best_possible_lower_bound, describe_gate, required_passes
+from juried.targets.http import TargetConfigError, expand_env
 
 RESPONSE_EXCERPT = 1200
 
@@ -95,8 +97,10 @@ def pytest_configure(config: pytest.Config) -> None:
             juried_config.run.threshold = threshold
         if config.getoption("--juried-cache-responses"):
             juried_config.run.cache_responses = True
+        # Resolve header secrets now so a missing variable fails before any scenario runs.
+        expand_env(juried_config.target.headers, os.environ)
         state = JuriedState(juried_config, path, not config.getoption("--juried-no-cache"))
-    except (ConfigError, CriteriaError) as exc:
+    except (ConfigError, CriteriaError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
     config.stash[STATE] = state
 
@@ -191,7 +195,7 @@ class ScenarioItem(pytest.Item):
         if isinstance(excinfo.value, GateFailure):
             state = self.config.stash[STATE]
             return format_gate_failure(excinfo.value.result, state)
-        if isinstance(excinfo.value, ProviderError):
+        if isinstance(excinfo.value, ProviderError | TargetConfigError):
             return f"juried: {excinfo.value}"
         return super().repr_failure(excinfo, style)
 
@@ -199,14 +203,28 @@ class ScenarioItem(pytest.Item):
         return self.path, None, f"juried scenario: {self.scenario.name}"
 
 
-def summarise(result: ScenarioResult) -> str:
-    comparison = ">=" if result.gate_passed else "<"
-    text = (
-        f"{result.passes}/{result.total} "
-        f"(lower {result.interval.lower:.2f} {comparison} {result.threshold:.2f})"
-    )
+def describe_errors(result: ScenarioResult) -> str:
+    parts = []
     if result.transport_errors:
-        text += f" with {result.transport_errors} transport error(s)"
+        parts.append(f"{result.transport_errors} transport error(s)")
+    if result.judge_errors:
+        parts.append(f"{result.judge_errors} judge error(s)")
+    return " and ".join(parts)
+
+
+def summarise(result: ScenarioResult) -> str:
+    comparison = ">=" if result.quality_met else "<"
+    if result.complete:
+        text = (
+            f"{result.passes}/{result.total} "
+            f"(lower {result.interval.lower:.2f} {comparison} {result.threshold:.2f})"
+        )
+    else:
+        text = (
+            f"incomplete: {result.passes}/{result.judged} judged of {result.total} "
+            f"(lower {result.interval.lower:.2f} {comparison} {result.threshold:.2f}) "
+            f"with {describe_errors(result)}"
+        )
     if result.responses_from_cache:
         text += f" [{result.responses_from_cache} response(s) replayed from cache]"
     if result.split_verdicts:
@@ -229,28 +247,44 @@ def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
     lines.append(f"    user: {scenario.message}")
     if record.error is not None:
         lines.append(f"    transport error: {record.error}")
-    else:
-        lines.append(f"    response: {excerpt(record.response)}")
-        if record.verdict is not None:
-            votes = ""
-            if len(record.votes) > 1:
-                agreed = sum(1 for vote in record.votes if vote.passed == record.verdict.passed)
-                votes = f", {agreed} of {len(record.votes)} votes"
-            lines.append(f"    judge ({record.verdict.model}{votes}): {record.verdict.reason}")
+        return lines
+    lines.append(f"    response: {excerpt(record.response)}")
+    if record.judge_error is not None:
+        lines.append(f"    judge error: {record.judge_error}")
+    elif record.verdict is not None:
+        votes = ""
+        if len(record.votes) > 1:
+            agreed = sum(1 for vote in record.votes if vote.passed == record.verdict.passed)
+            votes = f", {agreed} of {len(record.votes)} votes"
+        lines.append(f"    judge ({record.verdict.model}{votes}): {record.verdict.reason}")
     return lines
 
 
 def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
     interval = result.interval
-    lines = [
-        f"juried gate failed for scenario {result.scenario.id!r} ({result.scenario.name})",
-        f"  criterion: {result.criterion.id} ({result.criterion.title})",
-        f"  runs upheld: {result.passes}/{result.total} = {result.pass_rate:.2f}",
-        f"  lower bound: {interval.lower:.2f} (Wilson 95% interval {interval.lower:.2f} "
-        f"to {interval.upper:.2f})",
-        f"  threshold: {result.threshold:.2f}, gate upheld when the lower bound meets it",
-        f"  transport errors: {result.transport_errors}",
-    ]
+    scenario = f"scenario {result.scenario.id!r} ({result.scenario.name})"
+    if result.complete:
+        lines = [f"juried gate failed for {scenario}"]
+    else:
+        lines = [
+            f"juried could not complete {scenario}: {result.errors} of {result.total} "
+            f"attempts ended in {describe_errors(result)}",
+            "  these attempts are not counted in the pass rate; fix the endpoint or judge "
+            "and run again",
+        ]
+    verdict = "met" if result.quality_met else "not met"
+    lines.extend(
+        [
+            f"  criterion: {result.criterion.id} ({result.criterion.title})",
+            f"  runs upheld: {result.passes}/{result.judged} judged = {result.pass_rate:.2f}",
+            f"  lower bound: {interval.lower:.2f} (Wilson 95% interval {interval.lower:.2f} "
+            f"to {interval.upper:.2f})",
+            f"  threshold: {result.threshold:.2f}, gate upheld when the lower bound meets it "
+            f"({verdict} on the judged attempts)",
+            f"  transport errors: {result.transport_errors}",
+            f"  judge errors: {result.judge_errors}",
+        ]
+    )
     if result.responses_from_cache:
         lines.append(
             f"  responses replayed from cache: {result.responses_from_cache} "
@@ -308,11 +342,14 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     if state is None or not state.results:
         return
     passed = sum(1 for result in state.results if result.gate_passed)
-    errors = sum(result.transport_errors for result in state.results)
+    incomplete = sum(1 for result in state.results if not result.complete)
+    transport = sum(result.transport_errors for result in state.results)
+    judge = sum(result.judge_errors for result in state.results)
     terminalreporter.write_sep("-", "juried summary")
     terminalreporter.write_line(
         f"{len(state.results)} scenarios, {passed} upheld, "
-        f"{len(state.results) - passed} failed, {errors} transport errors"
+        f"{len(state.results) - passed - incomplete} failed, {incomplete} incomplete, "
+        f"{transport} transport errors, {judge} judge errors"
     )
     replayed = sum(result.responses_from_cache for result in state.results)
     if replayed:

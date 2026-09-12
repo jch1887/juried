@@ -150,9 +150,17 @@ Decide on the number of misses you are willing to accept, then pick `runs` from 
 raising `threshold` alone only makes the gate stricter.
 
 A failing gate is a normal pytest failure that shows the pass rate, the interval, the
-threshold and the first failing transcript with the judge's reason. An HTTP error from
-your endpoint is reported as a transport error, separately from a judge fail. Every verdict
-is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
+threshold and the first failing transcript with the judge's reason.
+
+Errors are kept out of the maths. An HTTP error from your endpoint is a transport error
+and a judge that cannot answer (missing key, refusal, API outage) is a judge error; neither
+counts as a failed run. The pass rate and interval are computed over the attempts that
+reached a verdict, and the scenario is reported as incomplete, which still fails the
+pytest item, with the errors listed first and the quality figures for the judged attempts
+beneath them. A wobbly staging endpoint therefore shows up as transport errors, not as a
+drop in quality. A misconfigured `response_path` or a header that names an unset
+environment variable stops the run with one clear message instead of a traceback.
+Every verdict is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
 
 ## Caching
 

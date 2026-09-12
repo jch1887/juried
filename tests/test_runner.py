@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,10 +10,11 @@ import pytest
 from juried.cache import Cache
 from juried.config import parse_config
 from juried.criteria import Criterion
-from juried.judge import Provider, StubProvider, Verdict
+from juried.judge import Provider, ProviderError, StubProvider, Verdict
 from juried.runner import Runner, ScenarioResult
 from juried.scenarios import Scenario, Turn
 from juried.targets.base import TargetResponse
+from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
 
 CRITERION = Criterion("hours", "Opening hours", "States the hours.")
@@ -133,6 +135,12 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
     assert outcomes == ["pass", "transport_error", "fail"]
     assert result.transport_errors == 1
     assert result.passes == 1
+    assert result.judged == 2
+    assert result.pass_rate == pytest.approx(0.5)
+    assert result.interval.lower == pytest.approx(0.0945, abs=1e-4)
+    assert not result.complete
+    assert result.status == "incomplete"
+    assert not result.gate_passed
     assert result.runs[1].verdict is None
     assert "HTTP 500" in result.runs[1].reason
     data = result.to_dict()
@@ -140,6 +148,80 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
     assert data["attempts"][1]["verdict"] is None
     assert data["attempts"][1]["response_ms"] is None
     assert data["latency"] == {"measured": 2, "mean_ms": 1.0, "max_ms": 1.0}
+    assert data["judged"] == 2
+    assert data["status"] == "incomplete"
+
+
+def test_errors_do_not_drag_the_rate_down(tmp_path: Path) -> None:
+    target = ScriptedTarget([TransportFailure("HTTP 502 from http://bot", status_code=502)] * 3)
+    target.replies.extend(["Open 9am."] * 7)
+    result = make_runner(tmp_path, target, runs=10).run(scenario(threshold=0.6), CRITERION)
+    assert result.transport_errors == 3
+    assert result.passes == 7
+    assert result.judged == 7
+    assert result.pass_rate == 1.0
+    assert result.quality_met
+    assert not result.gate_passed
+    assert result.status == "incomplete"
+    assert [run.attempt for run in result.failures] == [1, 2, 3]
+
+
+def test_judge_errors_are_recorded_per_attempt(tmp_path: Path) -> None:
+    class FlakyJudge(StubProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def judge(
+            self, criterion: Criterion, scenario: Scenario, response_text: str
+        ) -> Verdict:
+            self.calls += 1
+            if self.calls == 2:
+                raise ProviderError("stub provider needs the STUB_KEY environment variable")
+            if self.calls == 3:
+                raise TransportFailure("HTTP 529 from https://judge", status_code=529)
+            return await super().judge(criterion, scenario, response_text)
+
+    target = ScriptedTarget(["Open 9am.", "Open 9am!", "Open 9am?", "Open 9am;"])
+    runner = make_runner(tmp_path, target, runs=4, concurrency=1)
+    runner.provider = FlakyJudge()
+    result = runner.run(scenario(), CRITERION)
+    assert [run.outcome for run in result.runs] == ["pass", "judge_error", "judge_error", "pass"]
+    assert result.judge_errors == 2
+    assert result.transport_errors == 0
+    assert result.errors == 2
+    assert result.judged == 2
+    assert result.passes == 2
+    assert result.runs[1].reason.startswith("stub provider needs")
+    assert result.runs[1].label == "judge error"
+    assert result.runs[1].response == "Open 9am!"
+    assert result.status == "incomplete"
+    data = result.to_dict()
+    assert data["judge_errors"] == 2
+    assert data["attempts"][2]["judge_error"].startswith("HTTP 529")
+    assert data["attempts"][2]["error"] is None
+    log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()
+    assert len(log) == 2
+
+
+def test_config_error_stops_the_scenario_cleanly(tmp_path: Path) -> None:
+    class BrokenPath(ScriptedTarget):
+        async def send(self, message: str, history: Sequence[Turn]) -> TargetResponse:
+            index = self.calls
+            self.calls += 1
+            await asyncio.sleep(0.01)
+            if index == 1:
+                raise TargetConfigError("response_path 'answer': key 'answer' not found in {}")
+            await asyncio.sleep(0.2)
+            return TargetResponse("Open 9am.", 200, 1.0)
+
+    target = BrokenPath(["unused"])
+    runner = make_runner(tmp_path, target, runs=6, concurrency=6)
+    started = time.perf_counter()
+    with pytest.raises(TargetConfigError, match="response_path 'answer'") as info:
+        runner.run(scenario(), CRITERION)
+    assert not isinstance(info.value, ExceptionGroup)
+    assert time.perf_counter() - started < 0.15
 
 
 def test_concurrency_limit_respected(tmp_path: Path) -> None:

@@ -80,10 +80,12 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "criteria": 3,
         "scenarios": 2,
         "gates_passed": 1,
-        "gates_failed": 1,
+        "gates_failed": 0,
+        "incomplete": 1,
         "transport_errors": 1,
         "responses_from_cache": 0,
         "split_verdicts": 0,
+        "judge_errors": 0,
         "criteria_without_scenarios": ["tone"],
     }
     assert [c["id"] for c in report["criteria"]] == ["hours", "refunds", "tone"]
@@ -96,8 +98,13 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert scenario["required_passes"] == 3
     assert report["defaults"] == {"runs": 10, "threshold": 0.7, "required_passes": 10}
     assert scenario["history"][0]["content"] == "hi"
+    assert report["criteria"][1]["incomplete"] == 1
+    assert report["criteria"][1]["gates_failed"] == 0
     refunds = report["criteria"][1]["scenarios"][0]
     assert refunds["gate_passed"] is False
+    assert refunds["status"] == "incomplete"
+    assert refunds["judged"] == 2
+    assert refunds["pass_rate"] == 0.5
     assert [f["attempt"] for f in refunds["failures"]] == [2, 3]
     assert refunds["failures"][0]["reason"] == "does not mention 14 days"
     assert refunds["failures"][0]["judged_at"] == "2026-09-12T10:00:00+00:00"
@@ -141,7 +148,9 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "does not mention 14 days" in html
     assert "HTTP 500 from http://bot/chat: boom" in html
     assert "Criteria with no scenarios: tone." in html
-    assert "1 / 3" in html
+    assert "1 / 2" in html
+    assert "1 transport</span>" in html
+    assert "judge errors" in html
     assert "gates upheld" in html
     assert "temperature not set, one verdict per response" in html
     assert "split verdicts" not in html
@@ -154,7 +163,9 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
         "A scenario is upheld when the lower bound of its 95% interval meets the threshold." in html
     )
     assert ">upheld</td>" in html
-    assert ">failed</td>" in html
+    assert ">incomplete</td>" in html
+    assert ">failed</td>" not in html
+    assert '<th class="num">Runs upheld / judged</th>' in html
     assert '<th class="num">Passes</th>' not in html
     assert ">pass<" not in html and ">fail<" not in html
     assert html.count('<span class="meta">hours-happy</span>') == 0

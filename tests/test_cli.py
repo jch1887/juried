@@ -160,11 +160,12 @@ def test_run_end_to_end_in_subprocess(pytester: pytest.Pytester, fake_bot_url: s
         [
             "*opening-hours-asks-hours PASSED 3/3 (lower 0.44 >= 0.20)*",
             "*opening-hours-nonsense FAILED 0/3 (lower 0.00 < 0.20)*",
-            "*2 scenarios, 1 upheld, 1 failed, 0 transport errors",
+            "*2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
         ]
     )
     report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
     assert report["summary"]["gates_failed"] == 1
+    assert report["summary"]["incomplete"] == 0
     assert (pytester.path / "out.xml").is_file()
 
 
@@ -176,5 +177,21 @@ def test_missing_config_is_reported(
     assert "no juried.toml found" in capsys.readouterr().err
     assert main(["run", "--config", str(tmp_path / "nope.toml")]) == 2
     assert "not found" in capsys.readouterr().err
+
+
+def test_target_config_errors_are_reported_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from juried.targets.http import TargetConfigError
+
+    def explode(args: list[str]) -> int:
+        raise TargetConfigError("header refers to unset environment variable TOKEN")
+
+    (tmp_path / "juried.toml").write_text('[target]\nurl = "http://x/"\n')
+    (tmp_path / "acceptance.md").write_text(ACCEPTANCE)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("juried.cli.pytest.main", explode)
+    assert main(["run"]) == 2
+    assert "juried: header refers to unset environment variable TOKEN" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["init", "--bogus"])

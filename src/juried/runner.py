@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -219,6 +222,13 @@ class ScenarioResult:
         }
 
 
+@dataclass(frozen=True)
+class Resources:
+    target: Target
+    target_slots: asyncio.Semaphore
+    judge_slots: asyncio.Semaphore
+
+
 class Runner:
     def __init__(
         self,
@@ -247,30 +257,41 @@ class Runner:
         return asyncio.run(self.run_async(scenario, criterion))
 
     async def run_async(self, scenario: Scenario, criterion: Criterion) -> ScenarioResult:
-        runs = self.runs_for(scenario)
-        semaphore = asyncio.Semaphore(self.config.run.concurrency)
+        async with self.resources() as resources:
+            return await self.run_with(resources, scenario, criterion)
+
+    @asynccontextmanager
+    async def resources(self) -> AsyncIterator[Resources]:
+        # One client and one provider serve every scenario, and the semaphores cap requests
+        # to the target and to the judge across all of them.
         timeout = self.config.target.timeout_seconds
         async with httpx.AsyncClient(timeout=timeout) as client, self.provider:
-            target = self.target_factory(client)
-            try:
-                # A task group cancels the remaining attempts when one raises, so a
-                # configuration error stops the scenario instead of leaving tasks dangling.
-                async with asyncio.TaskGroup() as group:
-                    tasks = [
-                        group.create_task(
-                            self._attempt(semaphore, target, scenario, criterion, attempt)
-                        )
-                        for attempt in range(1, runs + 1)
-                    ]
-            except* TargetConfigError as failures:
-                raise failures.exceptions[0] from None
-            records = [task.result() for task in tasks]
+            yield Resources(
+                self.target_factory(client),
+                asyncio.Semaphore(self.config.run.concurrency),
+                asyncio.Semaphore(self.config.judge.concurrency),
+            )
+
+    async def run_with(
+        self, resources: Resources, scenario: Scenario, criterion: Criterion
+    ) -> ScenarioResult:
+        runs = self.runs_for(scenario)
+        try:
+            # A task group cancels the remaining attempts when one raises, so a
+            # configuration error stops the scenario instead of leaving tasks dangling.
+            async with asyncio.TaskGroup() as group:
+                tasks = [
+                    group.create_task(self._attempt(resources, scenario, criterion, attempt))
+                    for attempt in range(1, runs + 1)
+                ]
+        except* TargetConfigError as failures:
+            raise failures.exceptions[0] from None
+        records = [task.result() for task in tasks]
         return ScenarioResult(scenario, criterion, self.threshold_for(scenario), records)
 
     async def _attempt(
         self,
-        semaphore: asyncio.Semaphore,
-        target: Target,
+        resources: Resources,
         scenario: Scenario,
         criterion: Criterion,
         attempt: int,
@@ -278,47 +299,48 @@ class Runner:
         record = RunRecord(attempt=attempt)
         history = [turn.model_dump() for turn in scenario.history]
         started = time.perf_counter()
-        async with semaphore:
-            # Replaying responses defeats repeated sampling, so it is opt in and every
-            # replayed attempt is flagged in the record, the terminal and the report.
-            replay = self.config.run.cache_responses
-            response_key = Cache.key(
-                "response", target.fingerprint(), scenario.message, history, attempt
-            )
-            cached_response = self.cache.get("responses", response_key) if replay else None
-            if cached_response is not None:
-                record.response = str(cached_response["text"])
-                record.response_cached = True
-            else:
+        target = resources.target
+        # Replaying responses defeats repeated sampling, so it is opt in and every
+        # replayed attempt is flagged in the record, the terminal and the report.
+        replay = self.config.run.cache_responses
+        response_key = Cache.key(
+            "response", target.fingerprint(), scenario.message, history, attempt
+        )
+        cached_response = self.cache.get("responses", response_key) if replay else None
+        if cached_response is not None:
+            record.response = str(cached_response["text"])
+            record.response_cached = True
+        else:
+            async with resources.target_slots:
                 try:
                     response = await target.send(scenario.message, scenario.history)
                 except TransportFailure as exc:
                     record.error = str(exc)
                     record.elapsed_ms = (time.perf_counter() - started) * 1000
                     return record
-                record.response = response.text
-                record.response_ms = response.elapsed_ms
-                if replay:
-                    self.cache.put(
-                        "responses",
-                        response_key,
-                        {"text": response.text, "status_code": response.status_code},
-                    )
-
-            try:
-                votes = await asyncio.gather(
-                    *(
-                        self._vote(criterion, scenario, history, record.response, vote)
-                        for vote in range(1, self.config.judge.votes + 1)
-                    )
+            record.response = response.text
+            record.response_ms = response.elapsed_ms
+            if replay:
+                self.cache.put(
+                    "responses",
+                    response_key,
+                    {"text": response.text, "status_code": response.status_code},
                 )
-            except (ProviderError, TransportFailure) as exc:
-                record.judge_error = str(exc)
-                record.elapsed_ms = (time.perf_counter() - started) * 1000
-                return record
-            record.votes = [verdict for verdict, _ in votes]
-            record.verdict = majority_verdict(record.votes)
-            record.verdict_cached = all(cached for _, cached in votes)
+
+        try:
+            votes = await asyncio.gather(
+                *(
+                    self._vote(resources, criterion, scenario, history, record.response, vote)
+                    for vote in range(1, self.config.judge.votes + 1)
+                )
+            )
+        except (ProviderError, TransportFailure) as exc:
+            record.judge_error = str(exc)
+            record.elapsed_ms = (time.perf_counter() - started) * 1000
+            return record
+        record.votes = [verdict for verdict, _ in votes]
+        record.verdict = majority_verdict(record.votes)
+        record.verdict_cached = all(cached for _, cached in votes)
         record.elapsed_ms = (time.perf_counter() - started) * 1000
         self.cache.append_log(
             "verdicts",
@@ -337,6 +359,7 @@ class Runner:
 
     async def _vote(
         self,
+        resources: Resources,
         criterion: Criterion,
         scenario: Scenario,
         history: list[dict[str, str]],
@@ -357,6 +380,61 @@ class Runner:
         cached = self.cache.get("verdicts", key)
         if cached is not None:
             return Verdict.from_dict(cached), True
-        verdict = await self.provider.judge(criterion, scenario, response)
+        async with resources.judge_slots:
+            verdict = await self.provider.judge(criterion, scenario, response)
         self.cache.put("verdicts", key, verdict.to_dict())
         return verdict, False
+
+
+class Session:
+    """Runs scenarios on one event loop in a background thread, so that scenarios submitted
+    from sequential pytest items overlap and share the runner's resources."""
+
+    def __init__(self, runner: Runner) -> None:
+        self.runner = runner
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, name="juried", daemon=True)
+        self._stack = AsyncExitStack()
+        self._resources: Resources | None = None
+        self._tasks: set[asyncio.Task[ScenarioResult]] = set()
+
+    def __enter__(self) -> Session:
+        self._thread.start()
+        self._call(self._open()).result()
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._call(self._shutdown()).result()
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join()
+        self._loop.close()
+
+    def submit(
+        self, scenario: Scenario, criterion: Criterion
+    ) -> concurrent.futures.Future[ScenarioResult]:
+        return self._call(self._tracked(scenario, criterion))
+
+    def _call(
+        self, coroutine: Coroutine[Any, Any, ScenarioResult | None]
+    ) -> concurrent.futures.Future[Any]:
+        return asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+
+    async def _open(self) -> None:
+        self._resources = await self._stack.enter_async_context(self.runner.resources())
+
+    async def _tracked(self, scenario: Scenario, criterion: Criterion) -> ScenarioResult:
+        task = asyncio.current_task()
+        assert task is not None and self._resources is not None
+        self._tasks.add(task)
+        try:
+            return await self.runner.run_with(self._resources, scenario, criterion)
+        finally:
+            self._tasks.discard(task)
+
+    async def _shutdown(self) -> None:
+        # Cancel whatever pytest never asked for, such as the items after a -x stop, before
+        # the client and provider close.
+        for task in list(self._tasks):
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await self._stack.aclose()

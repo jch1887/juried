@@ -11,7 +11,7 @@ from juried.cache import Cache
 from juried.config import parse_config
 from juried.criteria import Criterion
 from juried.judge import Provider, ProviderError, StubProvider, Verdict
-from juried.runner import Runner, ScenarioResult
+from juried.runner import Runner, ScenarioResult, Session
 from juried.scenarios import Scenario, Turn
 from juried.targets.base import TargetResponse
 from juried.targets.http import TargetConfigError
@@ -69,6 +69,21 @@ class SplitProvider(StubProvider):
         return await super().judge(criterion, scenario, response_text)
 
 
+class SlowJudge(StubProvider):
+    def __init__(self, delay: float) -> None:
+        super().__init__()
+        self.delay = delay
+        self.active = 0
+        self.max_active = 0
+
+    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(self.delay)
+        self.active -= 1
+        return await super().judge(criterion, scenario, response_text)
+
+
 def make_runner(
     tmp_path: Path,
     target: ScriptedTarget,
@@ -77,13 +92,14 @@ def make_runner(
     cache: bool = True,
     cache_responses: bool = False,
     votes: int = 1,
+    judge_concurrency: int = 4,
     provider: Provider | None = None,
 ) -> Runner:
     config = parse_config(
         f'[target]\nurl = "http://unused/"\n[run]\nruns = {runs}\nconcurrency = {concurrency}\n'
         f'cache_dir = "{tmp_path / ".juried"}"\n'
         f"cache_responses = {'true' if cache_responses else 'false'}\n"
-        f'[judge]\nprovider = "stub"\nvotes = {votes}\n',
+        f'[judge]\nprovider = "stub"\nvotes = {votes}\nconcurrency = {judge_concurrency}\n',
         tmp_path,
         environ={},
     )
@@ -228,6 +244,57 @@ def test_concurrency_limit_respected(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am."])
     make_runner(tmp_path, target, runs=12, concurrency=3).run(scenario(), CRITERION)
     assert target.max_active == 3
+
+
+def test_judge_has_its_own_concurrency_cap(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am."])
+    judge = SlowJudge(0.02)
+    runner = make_runner(
+        tmp_path, target, runs=8, concurrency=8, judge_concurrency=2, provider=judge
+    )
+    started = time.perf_counter()
+    result = runner.run(scenario(), CRITERION)
+    elapsed = time.perf_counter() - started
+    assert result.passes == 8
+    assert target.max_active == 8
+    assert judge.max_active == 2
+    assert elapsed < 0.02 * 8
+
+
+def test_session_overlaps_scenarios_and_keeps_order(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am."])
+    runner = make_runner(tmp_path, target, runs=4, concurrency=6, cache=False)
+    scenarios = [scenario(id=f"s{i}", message=f"question {i}") for i in range(5)]
+    started = time.perf_counter()
+    with Session(runner) as session:
+        futures = [session.submit(item, CRITERION) for item in scenarios]
+        results = [future.result() for future in futures]
+    elapsed = time.perf_counter() - started
+    assert [result.scenario.id for result in results] == ["s0", "s1", "s2", "s3", "s4"]
+    assert all(result.passes == 4 for result in results)
+    assert target.calls == 20
+    # Sequential scenarios at concurrency 6 would take five rounds of one sleep each; overlap
+    # brings twenty calls down to about four rounds.
+    assert target.max_active == 6
+    assert elapsed < 0.01 * 5 * 2
+
+
+def test_session_cancels_unfinished_work_on_exit(tmp_path: Path) -> None:
+    class Slow(ScriptedTarget):
+        async def send(self, message: str, history: Sequence[Turn]) -> TargetResponse:
+            self.calls += 1
+            await asyncio.sleep(5)
+            return TargetResponse("Open 9am.", 200, 1.0)
+
+    target = Slow([])
+    runner = make_runner(tmp_path, target, runs=2, concurrency=1)
+    started = time.perf_counter()
+    with Session(runner) as session:
+        future = session.submit(scenario(), CRITERION)
+        time.sleep(0.05)
+    assert future.cancelled()
+    assert target.calls == 1
+    assert time.perf_counter() - started < 1
 
 
 def test_responses_are_sampled_afresh_by_default(tmp_path: Path) -> None:

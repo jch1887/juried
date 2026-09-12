@@ -1,3 +1,4 @@
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     result.stdout.re_match_lines(
         [
             r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, "
-            r"cache verdicts only",
+            r"cache verdicts only, concurrency 4 target / 4 judge",
             r"juried: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\)",
             r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(lower 0.00 < 0.50\).*",
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
@@ -110,6 +111,35 @@ def test_stops_on_first_failure(pytester: pytest.Pytester, fake_bot_url: str) ->
     result = pytester.runpytest("-x")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*stopping after 1 failures*"])
+    assert "Task was destroyed" not in result.stderr.str()
+
+
+def test_scenarios_run_together_and_report_in_order(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    pytester.makeconftest(
+        """
+import pytest
+from juried.pytest_plugin import ScenarioItem
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    if isinstance(item, ScenarioItem):
+        assert item.future is not None
+        # Every scenario has already been submitted by the time the first item runs.
+        assert all(
+            other.future is not None
+            for other in item.session.items
+            if isinstance(other, ScenarioItem)
+        )
+"""
+    )
+    result = pytester.runpytest("-v", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1, failed=1)
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    ids = [s["id"] for c in report["criteria"] for s in c["scenarios"]]
+    assert ids == ["opening-hours-asks-hours", "refund-policy-asks-nonsense"]
 
 
 def test_junit_xml(pytester: pytest.Pytester, fake_bot_url: str) -> None:

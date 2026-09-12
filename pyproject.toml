@@ -10,6 +10,16 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENCE"]
 requires-python = ">=3.12"
+authors = [{ name = "jch1887" }]
+keywords = ["llm", "testing", "pytest", "qa", "acceptance-testing", "evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "httpx>=0.27",
     "pydantic>=2.6",
@@ -17,6 +27,12 @@ dependencies = [
     "pytest>=8.0",
     "jinja2>=3.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jch1887/juried"
+Repository = "https://github.com/jch1887/juried"
+Issues = "https://github.com/jch1887/juried/issues"
+Changelog = "https://github.com/jch1887/juried/releases"
 
 [project.optional-dependencies]
 dev = [

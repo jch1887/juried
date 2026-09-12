@@ -4,15 +4,9 @@ import os
 from typing import Any
 
 from juried.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
-from juried.transport import request_json
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 API_VERSION = "2023-06-01"
-SAMPLING_MODEL_MARKERS = ("-4-6", "-4-5", "-4-1", "-4-2025", "-3-")
-
-
-def supports_temperature(model: str) -> bool:
-    return any(marker in model for marker in SAMPLING_MODEL_MARKERS)
 
 
 class AnthropicProvider(LLMProvider):
@@ -29,23 +23,25 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": user}],
             "output_config": {"format": {"type": "json_schema", "schema": schema}},
         }
-        if supports_temperature(self.model):
+        if self.temperature is not None:
             body["temperature"] = self.temperature
-        response = await request_json(
-            self.client,
-            "POST",
+        response = await self.post_json(
             f"{(self.base_url or DEFAULT_BASE_URL).rstrip('/')}/v1/messages",
-            headers={
+            {
                 "x-api-key": api_key,
                 "anthropic-version": API_VERSION,
                 "content-type": "application/json",
             },
-            body=body,
-            retries=3,
+            body,
         )
         payload = response.json()
         if payload.get("stop_reason") == "refusal":
             raise ProviderError(f"{self.model} refused the request: {payload.get('stop_details')}")
+        if payload.get("stop_reason") == "max_tokens":
+            raise ProviderError(
+                f"{self.model} ran out of output tokens before answering; raise max_tokens "
+                f"under [judge] in juried.toml (currently {max_tokens})"
+            )
         text = "".join(
             block.get("text", "")
             for block in payload.get("content", [])

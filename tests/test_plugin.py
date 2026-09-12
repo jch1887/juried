@@ -65,10 +65,10 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
             r"\s+criterion: refund-policy \(Refund policy\)",
-            r"\s+pass rate: 0/4 = 0.00",
-            r"\s+Wilson 95% interval: \[0.00, 0.49\]",
-            r"\s+threshold: 0.50 on the lower bound",
-            r"\s+first failing run: attempt 1 \(fail\)",
+            r"\s+runs upheld: 0/4 = 0.00",
+            r"\s+lower bound: 0.00 \(Wilson 95% interval 0.00 to 0.49\)",
+            r"\s+threshold: 0.50, gate upheld when the lower bound meets it",
+            r"\s+first failing run: attempt 1 \(failed\)",
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
             r"\s+judge \(stub\): response does not mention '14 days'",
@@ -114,7 +114,7 @@ def test_junit_xml(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     assert set(cases) == {"refund-policy-asks-nonsense", "opening-hours-asks-hours"}
     failure = cases["refund-policy-asks-nonsense"].find("failure")
     assert failure is not None
-    assert "pass rate: 0/4" in (failure.get("message") or "") + (failure.text or "")
+    assert "runs upheld: 0/4" in (failure.get("message") or "") + (failure.text or "")
     properties = {
         p.get("name"): p.get("value") for p in cases["opening-hours-asks-hours"].iter("property")
     }
@@ -141,7 +141,7 @@ def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: s
     result.stdout.fnmatch_lines(
         [
             "juried: warning: with 4 runs the best possible lower bound is 0.51, below the "
-            "threshold 0.90, so the gate can never pass.*",
+            "threshold 0.90, so the gate can never be upheld.*",
             "*note: with 4 runs the best possible lower bound*",
         ]
     )
@@ -158,7 +158,7 @@ def test_transport_errors_reported(pytester: pytest.Pytester, fake_bot_url: str)
         [
             "*FAILED 0/4 (lower 0.00 < 0.50) with 4 transport error(s)*",
             "*transport errors: 4",
-            "*first failing run: attempt 1 (transport_error)",
+            "*first failing run: attempt 1 (transport error)",
             "*transport error: HTTP 500 from *",
         ]
     )

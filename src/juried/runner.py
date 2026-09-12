@@ -43,6 +43,10 @@ class RunRecord:
         return "pass" if self.passed else "fail"
 
     @property
+    def label(self) -> str:
+        return self.outcome.replace("_", " ") if self.error is not None else "failed"
+
+    @property
     def reason(self) -> str:
         if self.error is not None:
             return self.error
@@ -106,10 +110,6 @@ class ScenarioResult:
     @property
     def gate_passed(self) -> bool:
         return self.total > 0 and self.interval.lower >= self.threshold
-
-    @property
-    def successes(self) -> list[RunRecord]:
-        return [run for run in self.runs if run.passed]
 
     @property
     def failures(self) -> list[RunRecord]:
@@ -246,6 +246,7 @@ class Runner:
                 "criterion": criterion.id,
                 "attempt": attempt,
                 "cached": record.verdict_cached,
+                "temperature": self.provider.temperature,
                 **record.verdict.to_dict(),
             },
         )

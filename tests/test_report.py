@@ -70,7 +70,7 @@ def config(tmp_path: Path) -> Config:
 def test_build_report_structure(tmp_path: Path) -> None:
     report = build_report(config(tmp_path), [HOURS, REFUNDS, UNCOVERED], results())
     assert report["tool"] == "juried"
-    assert report["judge"] == {"provider": "stub", "model": "stub", "temperature": 0.0}
+    assert report["judge"] == {"provider": "stub", "model": "stub", "temperature": None}
     assert report["summary"] == {
         "criteria": 3,
         "scenarios": 2,
@@ -89,12 +89,6 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert scenario["history"][0]["content"] == "hi"
     refunds = report["criteria"][1]["scenarios"][0]
     assert refunds["gate_passed"] is False
-    assert [s["attempt"] for s in scenario["successes"]] == [1, 2, 3]
-    assert scenario["failures"] == []
-    assert [s["attempt"] for s in refunds["successes"]] == [1]
-    assert refunds["successes"][0]["outcome"] == "pass"
-    assert refunds["successes"][0]["reason"] == "ok"
-    assert refunds["successes"][0]["model"] == "stub"
     assert [f["attempt"] for f in refunds["failures"]] == [2, 3]
     assert refunds["failures"][0]["reason"] == "does not mention 14 days"
     assert refunds["failures"][0]["judged_at"] == "2026-09-12T10:00:00+00:00"
@@ -137,7 +131,21 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "Criteria with no scenarios: tone." in html
     assert "1 / 3" in html
     assert "gates upheld" in html
-    assert "44% to 100%" in html
+    assert "temperature not set" in html
+    assert '<th class="num">Lower bound</th>' in html
+    assert '<td class="num bound">44%</td>' in html
+    assert '<th class="num">Upper bound</th>' in html
+    assert (
+        "A scenario is upheld when the lower bound of its 95% interval meets the threshold." in html
+    )
+    assert ">upheld</td>" in html
+    assert ">failed</td>" in html
+    assert '<th class="num">Passes</th>' not in html
+    assert ">pass<" not in html and ">fail<" not in html
+    assert html.count('<span class="meta">hours-happy</span>') == 0
+    assert "(hours-happy)" in html
+    assert "attempt 3</span>transport error</p>" in html
+    assert "attempt 2</span>failed</p>" in html
     assert "1065 ms" in html
     assert "max 1310 ms" in html
     assert html.count('<span class="meta">cached</span>') == 1

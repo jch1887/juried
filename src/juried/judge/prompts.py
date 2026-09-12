@@ -6,7 +6,7 @@ from typing import Any
 from juried.criteria import Criterion
 from juried.scenarios import Scenario, Turn
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 JUDGE_SYSTEM = """You are the judge in an acceptance test suite for a software product feature \
 that uses a language model. You are given one acceptance criterion, one test scenario written \
@@ -20,6 +20,8 @@ mentions them.
 rules out, or refuses without reason fails.
 - If the expectation is met in substance, pass, even if the wording differs.
 - Be strict about factual details named in the expectation (numbers, names, policies).
+- A phrase in double quotes in the expectation must appear in the response word for word, \
+ignoring case. Text outside quotes is judged on meaning, not wording.
 
 Respond with JSON only: {"pass": true or false, "reason": "one short sentence"}."""
 

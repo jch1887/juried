@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="juried.png" alt="juried" width="360">
+  <img src="https://raw.githubusercontent.com/jch1887/juried/main/juried.png" alt="juried" width="360">
   <br>
   Acceptance testing for LLM features, built for QA teams.
 </p>
@@ -15,7 +15,7 @@ verdict holds.
 ## Install
 
 ```
-pip install -e .
+pip install juried
 ```
 
 Python 3.12 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
@@ -135,6 +135,11 @@ the judge's reason. Criteria with no scenarios are called out so coverage gaps a
 visible. The JSON file holds the same structure plus every attempt, for anyone who wants
 to chart trends.
 
+<img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report showing three scenarios, one at 7 of 10 failing because its lower bound is below the threshold" width="900">
+
+In the third row seven of ten runs passed and the observed rate meets the threshold, yet the
+gate still fails because the lower bound does not.
+
 ## Try it without API keys
 
 ```
@@ -151,8 +156,9 @@ the 14 day detail every fourth time, which is the kind of flakiness juried exist
 ## Development
 
 ```
-uv pip install -e ".[dev]"
 make check      # ruff, mypy and pytest
 ```
+
+See CONTRIBUTING.md for the development install.
 
 Licensed under the MIT licence.

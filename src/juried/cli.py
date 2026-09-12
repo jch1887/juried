@@ -52,11 +52,10 @@ calibration_dir = "calibration"
 [run]
 # Each scenario runs this many times. Its gate passes when the lower bound of the
 # Wilson 95% interval on the pass rate meets the threshold. The threshold is not a
-# pass rate: with runs = 10 and threshold = 0.7 all 10 runs must pass, since 9/10
-# has a lower bound of 0.60. 20 runs tolerate 1 miss, 50 runs tolerate 8. With 10
-# runs the best possible lower bound is 0.72, so a higher threshold needs more runs.
-# juried prints what the gate needs at the start of every run.
-runs = 10
+# pass rate: with runs = 20 and threshold = 0.7 the gate needs 19/20 passes, so one
+# miss is tolerated. 10 runs tolerate none (9/10 has a lower bound of 0.60), 50 runs
+# tolerate 8. juried prints what the gate needs at the start of every run.
+runs = 20
 threshold = 0.7
 # All scenarios run together; this caps requests in flight to the target across them.
 concurrency = 4

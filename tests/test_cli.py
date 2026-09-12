@@ -38,6 +38,7 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     config = load_config(tmp_path / "juried.toml", environ={})
     assert config.run.threshold == 0.7
+    assert config.run.runs == 20
     from juried.calibrate import load_calibration
 
     criteria = {c.id: c for c in load_criteria(config.criteria_path)}

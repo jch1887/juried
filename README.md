@@ -52,7 +52,7 @@ body = { message = "{{message}}", history = "{{history}}" }
 response_path = "choices.0.message.content"
 
 [run]
-runs = 10          # attempts per scenario
+runs = 20          # attempts per scenario
 threshold = 0.7    # floor on the lower bound of the Wilson 95% interval, not a pass rate
 concurrency = 4    # requests in flight to the target, across all scenarios
 
@@ -156,9 +156,11 @@ pass rate and its Wilson 95% interval, and the scenario passes when the lower bo
 
 **The threshold is not a pass rate.** It is a floor on the lower bound of the confidence
 interval, and with a small number of runs that bound sits well below the observed rate.
-**With the defaults, `runs = 10` and `threshold = 0.7`, a scenario must pass 10 times out
-of 10.** One miss gives 9/10, whose lower bound is 0.60, and the gate fails. A 90% pass
-rate does not pass the default gate. Tolerating misses means running more times:
+**With the defaults, `runs = 20` and `threshold = 0.7`, a scenario must pass 19 times out
+of 20: one miss is tolerated.** The default used to be 10 runs, which tolerated none: 9/10
+has a lower bound of 0.60 and fails the gate, so a 90% pass rate failed. Twenty runs cost
+twice as much per scenario but spare you that surprise. Tolerating more misses means
+running more times:
 
 | runs | threshold | passes needed | misses tolerated |
 |-----:|----------:|--------------:|-----------------:|
@@ -173,7 +175,7 @@ rate does not pass the default gate. Tolerating misses means running more times:
 |   10 |       0.9 |  never passes |                  |
 
 juried prints what the gate needs at the top of every run
-(`juried: gate needs 10/10 passes at threshold 0.70 (no misses tolerated)`), repeats it in
+(`juried: gate needs 19/20 passes at threshold 0.70 (1 miss tolerated)`), repeats it in
 every gate failure, shows it under the threshold in the report, and warns when a gate can
 never pass, as with 10 runs at 0.9 where even a perfect score has a lower bound of 0.72.
 Decide on the number of misses you are willing to accept, then pick `runs` from the table;

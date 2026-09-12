@@ -99,7 +99,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert scenario["interval"]["lower"] == 0.4385
     assert scenario["gate_passed"] is True
     assert scenario["required_passes"] == 3
-    assert report["defaults"] == {"runs": 10, "threshold": 0.7, "required_passes": 10}
+    assert report["defaults"] == {"runs": 20, "threshold": 0.7, "required_passes": 19}
     assert scenario["history"][0]["content"] == "hi"
     assert report["criteria"][1]["incomplete"] == 1
     assert report["criteria"][1]["gates_failed"] == 0
@@ -163,7 +163,7 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert '<th class="num">Lower bound</th>' in html
     assert '<td class="num bound">44%</td>' in html
     assert '40%<br><span class="meta">needs 3 / 3</span>' in html
-    assert "which needs 10 of 10 runs to pass" in html
+    assert "which needs 19 of 20 runs to pass" in html
     assert '<th class="num">Upper bound</th>' in html
     assert (
         "A scenario is upheld when the lower bound of its 95% interval meets the threshold." in html

@@ -176,6 +176,39 @@ def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) 
     assert not (pytester.path / ".juried" / "cache").exists()
 
 
+def test_real_judge_without_calibration_report_is_warned(
+    pytester: pytest.Pytester, fake_bot_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    write_project(pytester, fake_bot_url)
+    text = (
+        (pytester.path / "juried.toml")
+        .read_text()
+        .replace('provider = "stub"', 'provider = "anthropic"')
+    )
+    (pytester.path / "juried.toml").write_text(text)
+    result = pytester.runpytest("-k", "hours")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "juried: warning: no calibration report at *juried-calibration.json; these verdicts "
+            "come from anthropic/claude-sonnet-5 and nothing has checked it against human labels.*"
+        ]
+    )
+    (pytester.path / "reports").mkdir(exist_ok=True)
+    (pytester.path / "reports" / "juried-calibration.json").write_text("{}")
+    again = pytester.runpytest("-k", "hours")
+    assert "no calibration report" not in again.stdout.str()
+
+
+def test_stub_judge_is_not_nagged_about_calibration(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    result = pytester.runpytest("-k", "hours")
+    assert "no calibration report" not in result.stdout.str()
+
+
 def test_replayed_responses_are_shouted_about(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
     first = pytester.runpytest("--juried-cache-responses", "-v", "-k", "hours")

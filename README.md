@@ -24,7 +24,7 @@ environment. juried never reads a secret from disk and does not load `.env` itse
 ## Three commands
 
 ```
-juried init        # writes juried.toml and an example acceptance.md
+juried init        # writes juried.toml, an example acceptance.md and calibration/
 juried generate    # turns each criterion into scenarios/generated/<criterion>.yaml
 juried run         # runs every scenario N times under pytest and writes the report
 ```
@@ -250,6 +250,12 @@ cases:
 Label at least a handful of cases per criterion, including borderline responses and ones
 that contain the right words for the wrong reason. Rerun `calibrate` whenever the judge
 model, temperature or prompt changes.
+
+`juried init` writes `calibration/example.yaml` with two placeholder cases; replace them
+with real responses from your feature, labelled by your team. Until a calibration report
+exists under `reports/`, every run with a real judge ends with a warning that its verdicts
+have not been checked against human labels. The cases shipped with the example project are
+labelled against the stub, and show only that the stub is a substring matcher.
 
 ## What a run costs
 

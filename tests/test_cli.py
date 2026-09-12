@@ -19,6 +19,9 @@ def test_init_writes_files_and_keeps_existing(
     assert (tmp_path / "acceptance.md").is_file()
     assert (tmp_path / "scenarios").is_dir()
     assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.juried/\nreports/\n"
+    starter = (tmp_path / "calibration" / "example.yaml").read_text()
+    assert starter.startswith("# Responses your team has judged by hand")
+    assert "Do not trust the judge" in starter
     (tmp_path / "acceptance.md").write_text("custom")
     assert main(["init", "--dir", str(tmp_path)]) == 0
     assert (tmp_path / "acceptance.md").read_text() == "custom"
@@ -35,6 +38,11 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     config = load_config(tmp_path / "juried.toml", environ={})
     assert config.run.threshold == 0.7
+    from juried.calibrate import load_calibration
+
+    criteria = {c.id: c for c in load_criteria(config.criteria_path)}
+    cases = load_calibration(config.calibration_path, criteria)
+    assert [case.verdict for case in cases] == ["pass", "fail"]
     assert [c.id for c in load_criteria(config.criteria_path)] == [
         "opening-hours",
         "unknown-questions",

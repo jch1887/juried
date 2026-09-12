@@ -37,7 +37,7 @@ class CriteriaConfig(StrictModel):
 
 
 class RunConfig(StrictModel):
-    runs: int = Field(default=10, ge=1)
+    runs: int = Field(default=20, ge=1)
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
     cache_dir: Path = Path(".juried")

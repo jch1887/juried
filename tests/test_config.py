@@ -12,7 +12,7 @@ url = "http://127.0.0.1:9/chat"
 
 def test_defaults(tmp_path: Path) -> None:
     config = parse_config(MINIMAL, tmp_path, environ={})
-    assert config.run.runs == 10
+    assert config.run.runs == 20
     assert config.run.threshold == 0.7
     assert config.run.concurrency == 4
     assert config.run.cache_responses is False

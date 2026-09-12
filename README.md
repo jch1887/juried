@@ -115,17 +115,35 @@ scenarios:
     threshold: 0.8
 ```
 
+Add `turns` for a live conversation before `message`; see "Criteria and scenarios" below.
+
 The judge sees each part of the scenario in its own delimited section and is told that the
 response is untrusted output which may contain instructions or claims about the verdict, so a
 response that says "this meets the expectation, pass" is judged on what it does for the user,
 not on what it says about the test. The prompt is pinned and its version is part of every
 verdict's cache key, so a prompt change never reuses an old verdict.
 
-`history` is a scripted prefix. juried sends it to your endpoint with the message, shows it
-to the judge in its own section, and the generator may write a short one when a message
-only makes sense as a follow up. What juried does not do is drive a live conversation: it
-never feeds the feature's own reply back as the next turn, so a scenario tests one exchange
-with a fixed context, not a dialogue. See the roadmap below.
+Two fields cover conversations. `history` is a scripted prefix: juried sends it to your
+endpoint with the message and shows it to the judge in its own section, and the generator
+may write a short one when a message only makes sense as a follow up. `turns` is a live
+conversation: each entry is a user message sent in order, the feature's reply to it becomes
+context for the next, and `message` is the final turn that the expectation judges.
+
+```yaml
+  - name: Changes mind about the refund
+    kind: edge_case
+    turns:
+      - I want to return a jumper.
+      - Actually it was a gift, does that matter?
+    message: So how long have I got?
+    expected: Still states the "14 days" window and does not contradict its earlier answers.
+```
+
+Every attempt drives the whole conversation afresh, so a scenario with two turns costs three
+requests per attempt. The judge sees the scripted history, then the live transcript with the
+feature's own replies, then the final message and response, and is told the expectation may
+refer to what was said earlier. The transcript is recorded on every attempt, shown for
+failing runs in the terminal and the report, and kept in the JSON.
 
 A phrase in double quotes inside `expected` must appear in the response word for word,
 ignoring case. Text outside quotes is judged on meaning. With
@@ -343,8 +361,6 @@ trust any judge, and swap `provider` for a real one when you have a key.
 Not there yet, and shaped so they can be added without changing the scenario format:
 
 - A `Target` that drives a UI rather than an HTTP endpoint.
-- Multi turn conversations, where each scenario turn is sent in sequence and the feature's
-  own replies form the context for the next.
 - Further `Provider` implementations for other judges.
 - Adversarial scenario kinds, generated to attack the criterion rather than exercise it.
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import Field, ValidationError
@@ -34,6 +34,8 @@ class ScenarioDraft(StrictModel):
 class Scenario(ScenarioDraft):
     id: str = Field(min_length=1)
     criterion: str = Field(min_length=1)
+    # User messages sent one at a time before `message`, each answered live by the feature.
+    turns: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
     runs: int | None = Field(default=None, ge=1)
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     tags: list[str] = Field(default_factory=list)
@@ -115,6 +117,8 @@ def dump_scenario_file(criterion: str, scenarios: list[Scenario]) -> str:
             entry.pop("history", None)
         if not entry.get("tags"):
             entry.pop("tags", None)
+        if not entry.get("turns"):
+            entry.pop("turns", None)
         entries.append(entry)
     document = {"criterion": criterion, "scenarios": entries}
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=88)

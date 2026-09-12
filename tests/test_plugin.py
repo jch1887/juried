@@ -108,6 +108,41 @@ def test_keyword_and_marker_selection(pytester: pytest.Pytester, fake_bot_url: s
     )
 
 
+def test_live_turns_are_shown_for_failing_runs(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    (pytester.path / "scenarios" / "c-turns.yaml").write_text(
+        """
+criterion: opening-hours
+scenarios:
+  - name: Asks twice
+    turns:
+      - what are your hours?
+    message: and the history?
+    expected: Mentions "History had 2 turns" and "9am".
+"""
+    )
+    result = pytester.runpytest("-v", "-k", "twice")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*user (live): what are your hours?",
+            "*assistant (live): We are open Monday to Friday, 9am to 5pm.",
+            "*user: and the history?",
+            "*response: History had 2 turns.",
+            "*judge (stub): response does not mention '9am'",
+        ]
+    )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    scenario = report["criteria"][0]["scenarios"][0]
+    assert scenario["turns"] == ["what are your hours?"]
+    assert scenario["failures"][0]["transcript"][1]["content"].startswith("We are open")
+    html = (pytester.path / "reports" / "juried-report.html").read_text()
+    assert "user (live)</span>what are your hours?" in html
+    assert "live reply, shown per run below" in html
+
+
 def test_stops_on_first_failure(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
     result = pytester.runpytest("-x")

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 from juried.criteria import Criterion
 from juried.judge.base import Provider, Verdict
-from juried.scenarios import Scenario, ScenarioDraft
+from juried.scenarios import Scenario, ScenarioDraft, Turn
 
 QUOTED = re.compile(r'"([^"]+)"')
 
@@ -21,7 +22,13 @@ class StubProvider(Provider):
     def fingerprint(self) -> str:
         return f"stub:{self.model}"
 
-    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
         if not response_text.strip():
             return Verdict(False, "response was empty", self.model, Verdict.now())
         lowered = response_text.lower()

@@ -25,6 +25,7 @@ def scenario_entry(result: ScenarioResult, prices: tuple[float, float] | None) -
         {
             "attempt": run.attempt,
             "outcome": run.outcome,
+            "transcript": [turn.model_dump() for turn in run.transcript],
             "response": run.response,
             "reason": run.reason,
             "model": run.verdict.model if run.verdict else None,

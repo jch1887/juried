@@ -1,6 +1,8 @@
 PYTHON ?= python
 
-.PHONY: check lint type test example
+DIR ?= examples/faq-bot
+
+.PHONY: check lint type test example calibrate
 
 check: lint type test
 
@@ -13,6 +15,10 @@ type:
 
 test:
 	$(PYTHON) -m pytest
+
+# Judge the labelled responses under $(DIR)/calibration and write $(DIR)/reports/juried-calibration.json.
+calibrate:
+	$(PYTHON) -m juried.cli calibrate --config $(DIR)/juried.toml $(CALIBRATE_ARGS)
 
 example:
 	cd examples/faq-bot && $(PYTHON) server.py & \

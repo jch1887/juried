@@ -13,6 +13,10 @@ from juried.pricing import Usage, estimate_usd, prices_for
 from juried.runner import ScenarioResult
 from juried.stats import required_passes
 
+# Bumped whenever a field in the JSON report or the calibration report changes meaning or
+# goes away; adding a field does not bump it. Compare refuses reports of different versions.
+SCHEMA_VERSION = 1
+
 
 def usage_entry(usage: Usage, prices: tuple[float, float] | None) -> dict[str, Any]:
     return {**usage.to_dict(), "estimated_cost_usd": estimate_usd(usage, prices)}
@@ -69,6 +73,7 @@ def build_report(
     incomplete = sum(1 for r in results if not r.complete)
     return {
         "tool": "juried",
+        "schema_version": SCHEMA_VERSION,
         "version": __version__,
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "judge": {

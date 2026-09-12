@@ -2,7 +2,8 @@
 
 juried sends hand written requests to both providers, so the unit tests can only check what
 it sends, never that the API still accepts it. These tests send a tiny judge and generate
-request to each provider and are the only thing that notices a field rename upstream.
+request to each provider, check that the verdict and the drafts parse and that usage token
+counts come back, and are the only thing that notices a field rename upstream.
 
 They are deselected by default. Run them with:
 
@@ -21,8 +22,8 @@ import pytest
 
 from juried.config import ProviderName
 from juried.criteria import Criterion
-from juried.judge import LLMProvider, build_provider
-from juried.scenarios import Scenario
+from juried.judge import LLMProvider, Usage, build_provider
+from juried.scenarios import Scenario, ScenarioDraft
 
 pytestmark = [
     pytest.mark.live,
@@ -71,6 +72,12 @@ def test_judge_request_is_accepted_and_verdicts_are_sane(
             bad = await provider.judge(CRITERION, SCENARIO, FAILING)
         assert good.reason and bad.reason
         assert good.model == provider.model
+        for verdict in (good, bad):
+            assert verdict.usage.calls == 1
+            assert verdict.usage.input_tokens > 0, "no input token count came back"
+            assert verdict.usage.output_tokens > 0, "no output token count came back"
+        assert provider.usage_total.calls == 2
+        assert provider.usage_total.input_tokens == good.usage.input_tokens + bad.usage.input_tokens
         return good.passed, bad.passed
 
     assert asyncio.run(go()) == (True, False)
@@ -85,8 +92,13 @@ def test_generate_request_is_accepted(
     async def go() -> int:
         async with provider:
             drafts = await provider.generate(CRITERION, 2)
-        assert all(draft.message and draft.expected for draft in drafts)
+        assert all(isinstance(draft, ScenarioDraft) for draft in drafts)
+        assert all(draft.name and draft.message and draft.expected for draft in drafts)
         assert {draft.kind for draft in drafts} <= {"happy_path", "edge_case"}
+        assert all(turn.role in ("user", "assistant") for d in drafts for turn in d.history)
+        usage: Usage = provider.usage_total
+        assert usage.calls == 1
+        assert usage.input_tokens > 0 and usage.output_tokens > 0, "no token counts came back"
         return len(drafts)
 
     assert asyncio.run(go()) >= 1

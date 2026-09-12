@@ -18,8 +18,22 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: python -m pytest -m live -v
+      - name: Run the live suite, keeping the output
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -m live -v -rA | tee live-pytest.log
         env:
           JURIED_LIVE: "1"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          JURIED_LIVE_ANTHROPIC_MODEL: ${{ vars.JURIED_LIVE_ANTHROPIC_MODEL }}
+          JURIED_LIVE_OPENAI_MODEL: ${{ vars.JURIED_LIVE_OPENAI_MODEL }}
+      # The log is the evidence that a green run exercised both providers rather than
+      # skipping them, so it is kept even when the run fails.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-pytest-output
+          path: live-pytest.log
+          retention-days: 90

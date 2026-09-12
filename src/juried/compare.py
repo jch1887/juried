@@ -27,6 +27,29 @@ def load_report(path: Path) -> dict[str, Any]:
     return data
 
 
+def schema_version(report: dict[str, Any]) -> int | None:
+    value = report.get("schema_version")
+    return int(value) if isinstance(value, int) else None
+
+
+def check_same_schema(
+    old_path: Path, old: dict[str, Any], new_path: Path, new: dict[str, Any]
+) -> None:
+    before, after = schema_version(old), schema_version(new)
+    if before == after:
+        return
+
+    def describe(path: Path, version: int | None) -> str:
+        if version is None:
+            return f"{path} has no schema_version (written before juried 0.2.0)"
+        return f"{path} has schema_version {version}"
+
+    raise CompareError(
+        f"cannot compare reports with different schemas: {describe(old_path, before)}, "
+        f"{describe(new_path, after)}. Re-run the older side with this version of juried."
+    )
+
+
 def scenarios_by_id(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     entries: dict[str, dict[str, Any]] = {}
     for criterion in report["criteria"]:

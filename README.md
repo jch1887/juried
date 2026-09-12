@@ -21,21 +21,20 @@ pip install juried
 Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
 environment. juried never reads a secret from disk and does not load `.env` itself.
 
-## Three commands
+## The commands
 
 ```
-juried init        # writes juried.toml, an example acceptance.md and calibration/
-juried generate    # turns each criterion into scenarios/generated/<criterion>.yaml
-juried run         # runs every scenario N times under pytest and writes the report
+juried init                      # writes juried.toml, acceptance.md and calibration/example.yaml
+juried generate                  # turns each criterion into scenarios/generated/<criterion>.yaml
+juried calibrate                 # judges responses your team labelled; how far to trust the judge
+juried run                       # runs every scenario N times under pytest and writes the report
+juried compare old.json new.json # flags scenarios that got worse between two reports
 ```
-
-Two more: `juried calibrate` judges responses your team has already labelled and reports
-how often the judge agrees (see "Trusting the judge"), and `juried compare old.json new.json`
-turns two reports into a regression signal (see "Comparing runs").
 
 `juried run` accepts pytest arguments after its own, for example
-`juried run --runs 20 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
-review and edit the generated YAML, commit it, and `run` never touches it.
+`juried run --runs 50 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
+review and edit the generated YAML, commit it, and `run` never touches it. `calibrate` is
+covered under "Trusting the judge" and `compare` under "Comparing runs".
 
 ## Configuration
 
@@ -115,7 +114,7 @@ scenarios:
     threshold: 0.8
 ```
 
-Add `turns` for a live conversation before `message`; see "Criteria and scenarios" below.
+Add `turns` for a live conversation before `message`; see the conversation fields below.
 
 The judge sees each part of the scenario in its own delimited section and is told that the
 response is untrusted output which may contain instructions or claims about the verdict, so a
@@ -334,16 +333,26 @@ to chart trends.
 <img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report showing three scenarios, one at 7 of 10 failing because its lower bound is below the threshold" width="900">
 
 In the third row seven of ten runs passed and the observed rate meets the threshold, yet the
-gate still fails because the lower bound does not.
+gate still fails because the lower bound does not. The screenshot is from 0.1.x; since then
+the table shows passes over judged attempts and the "needs N / M" figure under the
+threshold, and the totals gained incomplete, judge error and judge spend tiles.
 
 ## Try it without API keys
 
 ```
 cd examples/faq-bot
-python server.py &      # deterministic fake FAQ bot on port 8765
+python server.py &       # deterministic fake FAQ bot on port 8765
 juried generate          # uses the stub provider from juried.toml
-juried run
+juried calibrate         # the stub against calibration/refunds.yaml
+juried run               # 13 scenarios, one fails its gate on purpose
+cp reports/juried-report.json reports/baseline.json
+juried run               # sample the bot again
+juried compare reports/baseline.json reports/juried-report.json   # exit 1 if the flaky scenario dropped
+kill %1
 ```
+
+The example's `juried.toml` sets `runs = 10` so the loop is quick; a real project should
+keep the default of 20. `make example` runs the same sequence from the repository root.
 
 The stub judge is a substring matcher: it passes any non empty response that contains every
 `"quoted phrase"` in `expected` and ignores the rest of the expectation. It shows the
@@ -354,7 +363,10 @@ the 14 day detail every fourth time, which is the kind of flakiness juried exist
 `juried calibrate` in the same directory runs the stub against the labelled responses in
 `calibration/refunds.yaml` and reports where it disagrees with the human labels. The stub
 gets the "right words, wrong answer" cases wrong, which is the point: calibrate before you
-trust any judge, and swap `provider` for a real one when you have a key.
+trust any judge, and swap `provider` for a real one when you have a key. The shipped
+calibration set is labelled against the stub and demonstrates the file format only; it says
+nothing about any real judge. `docs/calibration.md` explains how to build one from real
+responses and commit the resulting report.
 
 ## Roadmap
 
@@ -363,6 +375,36 @@ Not there yet, and shaped so they can be added without changing the scenario for
 - A `Target` that drives a UI rather than an HTTP endpoint.
 - Further `Provider` implementations for other judges.
 - Adversarial scenario kinds, generated to attack the criterion rather than exercise it.
+
+## Stability
+
+From 1.0.0 onwards juried keeps these backwards compatible within a major version, and a
+change to any of them is a new major version:
+
+- `juried.toml`: every key, its type, its default and its meaning. New keys may be added;
+  existing keys are not removed or repurposed.
+- The scenario YAML shape: `criterion`, `scenarios`, and each scenario's `id`, `name`,
+  `kind`, `message`, `expected`, `history`, `turns`, `runs`, `threshold` and `tags`.
+- The calibration YAML shape: `criterion`, `cases`, and each case's `name`, `criterion`,
+  `message`, `history`, `expected`, `response`, `verdict` and `note`.
+- The JSON report and the calibration report, governed by their `schema_version` field.
+  Fields may be added without a bump; a field changing meaning or going away bumps it, and
+  `juried compare` refuses reports of different versions.
+- The CLI: the subcommands `init`, `generate`, `calibrate`, `run` and `compare`, their flags,
+  their exit codes, and the pass through of pytest arguments from `run`.
+- The pytest markers `juried`, `criterion(id)`, `happy_path`, `edge_case` and `custom`, and
+  the `user_properties` written to JUnit XML: `criterion`, `passes`, `runs`, `pass_rate`,
+  `interval_lower`, `interval_upper`, `threshold` and `transport_errors`.
+- The `JURIED_*` environment variables: `JURIED_<SECTION>_<KEY>` overrides for every config
+  key, and `JURIED_LIVE`.
+
+Explicitly not covered, and free to change in any release: the judge and generation prompts
+(their version is recorded with every verdict so a change never reuses an old one), the HTML
+report layout, the pricing table and its dates, the terminal output wording, and the cache
+layout under `.juried/`.
+
+Until 1.0.0, a 0.x release may still change any of the items above. Every such change is
+listed under "Breaking changes" in `CHANGELOG.md` for that release.
 
 ## Development
 
@@ -373,6 +415,7 @@ make check      # ruff, mypy and pytest
 The same target runs in CI on every pull request. A separate weekly workflow sends one
 real request per provider to check that the Anthropic and OpenAI APIs still accept what
 juried sends; see CONTRIBUTING.md for how to run it locally, and for the development
-install.
+install. Changes are recorded in `CHANGELOG.md` and the release steps in
+`docs/releasing.md`.
 
 Licensed under the MIT licence.

@@ -1,11 +1,12 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from juried.cli import main
-from juried.compare import CompareError, compare_reports, load_report
+from juried.compare import CompareError, check_same_schema, compare_reports, load_report
 
 
 def entry(
@@ -31,8 +32,14 @@ def entry(
     }
 
 
-def report(*entries: dict[str, Any]) -> dict[str, Any]:
-    return {"tool": "juried", "criteria": [{"id": "hours", "scenarios": list(entries)}]}
+def report(*entries: dict[str, Any], schema: int | None = 1) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "tool": "juried",
+        "criteria": [{"id": "hours", "scenarios": list(entries)}],
+    }
+    if schema is not None:
+        data["schema_version"] = schema
+    return data
 
 
 def test_classifies_every_kind_of_change() -> None:
@@ -94,6 +101,28 @@ def test_reports_without_status_field_still_compare() -> None:
     change = compare_reports(report(old_entry), report(new_entry))[0]
     assert change.kind == "gate lost"
     assert change.to_dict()["old"]["judged"] == 20
+
+
+def test_reports_with_different_schema_versions_are_refused(tmp_path: Path) -> None:
+    old, new = Path("old.json"), Path("new.json")
+    check_same_schema(old, report(schema=1), new, report(schema=1))
+    check_same_schema(old, report(schema=None), new, report(schema=None))
+    with pytest.raises(
+        CompareError,
+        match=re.escape("old.json has schema_version 1, new.json has schema_version 2"),
+    ):
+        check_same_schema(old, report(schema=1), new, report(schema=2))
+    with pytest.raises(
+        CompareError,
+        match=re.escape("old.json has no schema_version (written before juried 0.2.0)"),
+    ):
+        check_same_schema(old, report(schema=None), new, report(schema=1))
+    legacy = tmp_path / "legacy.json"
+    current = tmp_path / "current.json"
+    legacy.write_text(json.dumps(report(entry("same", 20, 20), schema=None)))
+    current.write_text(json.dumps(report(entry("same", 20, 20))))
+    assert main(["compare", str(legacy), str(current)]) == 2
+    assert main(["compare", str(current), str(current)]) == 0
 
 
 def test_load_report_rejects_other_files(tmp_path: Path) -> None:

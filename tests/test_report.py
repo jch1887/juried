@@ -70,6 +70,7 @@ def config(tmp_path: Path) -> Config:
 def test_build_report_structure(tmp_path: Path) -> None:
     report = build_report(config(tmp_path), [HOURS, REFUNDS, UNCOVERED], results())
     assert report["tool"] == "juried"
+    assert report["schema_version"] == 1
     assert report["judge"] == {
         "provider": "stub",
         "model": "stub",

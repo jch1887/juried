@@ -66,7 +66,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption("--juried-runs", type=int, default=None, help="override run.runs")
     group.addoption("--juried-threshold", type=float, default=None, help="override run.threshold")
     group.addoption(
-        "--juried-no-cache", action="store_true", help="ignore cached responses and verdicts"
+        "--juried-no-cache", action="store_true", help="ignore cached verdicts and responses"
+    )
+    group.addoption(
+        "--juried-cache-responses",
+        action="store_true",
+        help="replay responses from the cache instead of sampling the feature",
     )
 
 
@@ -88,6 +93,8 @@ def pytest_configure(config: pytest.Config) -> None:
         threshold = config.getoption("--juried-threshold")
         if threshold is not None:
             juried_config.run.threshold = threshold
+        if config.getoption("--juried-cache-responses"):
+            juried_config.run.cache_responses = True
         state = JuriedState(juried_config, path, not config.getoption("--juried-no-cache"))
     except (ConfigError, CriteriaError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
@@ -102,14 +109,25 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     lines = [
         f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
         f"{state.config.judge.model}, runs {run.runs}, threshold {run.threshold}, "
-        f"cache {'on' if state.cache.enabled else 'off'}"
+        f"cache {cache_mode(state)}"
     ]
+    if state.cache.enabled and state.config.run.cache_responses:
+        lines.append(
+            "juried: warning: responses are replayed from the cache where present, so "
+            "repeated runs of a replayed scenario do not sample the feature"
+        )
     warning = state.gate_warning(run.runs, run.threshold)
     if warning:
         lines.append(f"juried: warning: {warning}")
     else:
         lines.append(f"juried: {describe_gate(run.runs, run.threshold)}")
     return lines
+
+
+def cache_mode(state: JuriedState) -> str:
+    if not state.cache.enabled:
+        return "off"
+    return "verdicts and responses" if state.config.run.cache_responses else "verdicts only"
 
 
 def pytest_collect_file(file_path: Path, parent: pytest.Collector) -> pytest.Collector | None:
@@ -188,6 +206,8 @@ def summarise(result: ScenarioResult) -> str:
     )
     if result.transport_errors:
         text += f" with {result.transport_errors} transport error(s)"
+    if result.responses_from_cache:
+        text += f" [{result.responses_from_cache} response(s) replayed from cache]"
     return text
 
 
@@ -224,6 +244,11 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
         f"  threshold: {result.threshold:.2f}, gate upheld when the lower bound meets it",
         f"  transport errors: {result.transport_errors}",
     ]
+    if result.responses_from_cache:
+        lines.append(
+            f"  responses replayed from cache: {result.responses_from_cache} "
+            "(these attempts did not sample the feature)"
+        )
     warning = state.gate_warning(result.total, result.threshold)
     if warning:
         lines.append(f"  note: {warning}")
@@ -282,6 +307,16 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         f"{len(state.results)} scenarios, {passed} upheld, "
         f"{len(state.results) - passed} failed, {errors} transport errors"
     )
+    replayed = sum(result.responses_from_cache for result in state.results)
+    if replayed:
+        total = sum(result.total for result in state.results)
+        terminalreporter.write_line(
+            f"juried: warning: {replayed} of {total} responses were replayed from "
+            f"{state.cache.root / 'cache' / 'responses'} and did not sample the feature; "
+            "run without --cache-responses to sample again",
+            yellow=True,
+            bold=True,
+        )
     if state.report_paths is not None:
         terminalreporter.write_line(f"report: {state.report_paths.html}")
         terminalreporter.write_line(f"json:   {state.report_paths.json}")

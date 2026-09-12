@@ -54,11 +54,17 @@ class ScriptedTarget:
 
 
 def make_runner(
-    tmp_path: Path, target: ScriptedTarget, runs: int = 10, concurrency: int = 4, cache: bool = True
+    tmp_path: Path,
+    target: ScriptedTarget,
+    runs: int = 10,
+    concurrency: int = 4,
+    cache: bool = True,
+    cache_responses: bool = False,
 ) -> Runner:
     config = parse_config(
         f'[target]\nurl = "http://unused/"\n[run]\nruns = {runs}\nconcurrency = {concurrency}\n'
-        f'cache_dir = "{tmp_path / ".juried"}"\n',
+        f'cache_dir = "{tmp_path / ".juried"}"\n'
+        f"cache_responses = {'true' if cache_responses else 'false'}\n",
         tmp_path,
         environ={},
     )
@@ -125,9 +131,25 @@ def test_concurrency_limit_respected(tmp_path: Path) -> None:
     assert target.max_active == 3
 
 
-def test_cache_makes_reruns_free(tmp_path: Path) -> None:
+def test_responses_are_sampled_afresh_by_default(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am.", "Open 9am.", "Closed."])
     runner = make_runner(tmp_path, target, runs=3)
+    first = runner.run(scenario(), CRITERION)
+    assert target.calls == 3
+    assert first.responses_from_cache == 0
+    second = runner.run(scenario(), CRITERION)
+    assert target.calls == 6
+    assert second.responses_from_cache == 0
+    assert not any(run.response_cached for run in second.runs)
+    assert all(run.verdict_cached for run in second.runs)
+    assert all(run.response_ms == 1.0 for run in second.runs)
+    assert not (tmp_path / ".juried" / "cache" / "responses").exists()
+    assert second.to_dict()["responses_from_cache"] == 0
+
+
+def test_response_replay_is_opt_in_and_flagged(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am.", "Open 9am.", "Closed."])
+    runner = make_runner(tmp_path, target, runs=3, cache_responses=True)
     first = runner.run(scenario(), CRITERION)
     assert target.calls == 3
     assert not any(run.response_cached for run in first.runs)
@@ -136,6 +158,8 @@ def test_cache_makes_reruns_free(tmp_path: Path) -> None:
     second = runner.run(scenario(), CRITERION)
     assert target.calls == 3
     assert all(run.response_cached and run.verdict_cached for run in second.runs)
+    assert second.responses_from_cache == 3
+    assert second.to_dict()["responses_from_cache"] == 3
     assert all(run.response_ms is None for run in second.runs)
     assert second.latency.measured == 0
     assert [run.outcome for run in second.runs] == [run.outcome for run in first.runs]
@@ -150,7 +174,7 @@ def test_cache_makes_reruns_free(tmp_path: Path) -> None:
 
 def test_cache_keys_include_attempt_and_content(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am."])
-    runner = make_runner(tmp_path, target, runs=2)
+    runner = make_runner(tmp_path, target, runs=2, cache_responses=True)
     runner.run(scenario(), CRITERION)
     runner.run(scenario(message="Different question"), CRITERION)
     assert target.calls == 4
@@ -164,7 +188,7 @@ def test_cache_keys_include_attempt_and_content(tmp_path: Path) -> None:
 
 def test_cache_can_be_disabled(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am."])
-    runner = make_runner(tmp_path, target, runs=2, cache=False)
+    runner = make_runner(tmp_path, target, runs=2, cache=False, cache_responses=True)
     runner.run(scenario(), CRITERION)
     runner.run(scenario(), CRITERION)
     assert target.calls == 4
@@ -173,7 +197,7 @@ def test_cache_can_be_disabled(tmp_path: Path) -> None:
 
 def test_transport_errors_are_not_cached(tmp_path: Path) -> None:
     target = ScriptedTarget([TransportFailure("ConnectError"), "Open 9am."])
-    runner = make_runner(tmp_path, target, runs=1)
+    runner = make_runner(tmp_path, target, runs=1, cache_responses=True)
     assert runner.run(scenario(), CRITERION).transport_errors == 1
     assert runner.run(scenario(), CRITERION).passes == 1
 

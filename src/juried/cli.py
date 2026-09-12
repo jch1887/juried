@@ -46,6 +46,10 @@ runs = 10
 threshold = 0.7
 concurrency = 4
 cache_dir = ".juried"
+# Verdicts are cached by content so an unchanged response is not judged twice. Responses
+# are sampled fresh on every run unless this is true, which replays saved responses and
+# so stops the run from detecting flakiness. Keep it false in CI.
+cache_responses = false
 report_dir = "reports"
 
 [judge]
@@ -100,7 +104,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
     run.add_argument("--runs", type=int, help="override run.runs")
     run.add_argument("--threshold", type=float, help="override run.threshold")
-    run.add_argument("--no-cache", action="store_true", help="ignore cached responses")
+    run.add_argument(
+        "--no-cache", action="store_true", help="ignore cached verdicts (and responses)"
+    )
+    run.add_argument(
+        "--cache-responses",
+        action="store_true",
+        help="replay responses from .juried/cache/responses instead of sampling the feature",
+    )
     run.epilog = (
         "Unrecognised arguments are passed to pytest, e.g. -k refunds -x --junitxml=out.xml"
     )
@@ -173,6 +184,7 @@ def command_run(
     runs: int | None,
     threshold: float | None,
     no_cache: bool,
+    cache_responses: bool,
     pytest_args: Sequence[str],
 ) -> int:
     path, config = locate_config(explicit)
@@ -183,6 +195,8 @@ def command_run(
         args.append(f"--juried-threshold={threshold}")
     if no_cache:
         args.append("--juried-no-cache")
+    if cache_responses:
+        args.append("--juried-cache-responses")
     if os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD"):
         args.extend(["-p", "juried.pytest_plugin"])
     extra = [arg for arg in pytest_args if arg != "--"]
@@ -201,7 +215,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_init(Path(args.dir), args.force)
         if args.command == "generate":
             return command_generate(args.config, args.criterion, args.force)
-        return command_run(args.config, args.runs, args.threshold, args.no_cache, extra)
+        return command_run(
+            args.config, args.runs, args.threshold, args.no_cache, args.cache_responses, extra
+        )
     except (ConfigError, CriteriaError, ScenarioError, ProviderError, TransportFailure) as exc:
         print(f"juried: {exc}", file=sys.stderr)
         return 2

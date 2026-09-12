@@ -77,6 +77,10 @@ def test_generate_then_run(
     assert args[2:6] == ["-v", "--juried-runs=5", "--juried-threshold=0.3", "--juried-no-cache"]
     assert args[6] == str(tmp_path / "scenarios")
     assert args[7:] == ["-k", "x", "-x"]
+    assert main(["run", "--cache-responses"]) == 0
+    assert "--juried-cache-responses" in captured["args"]
+    assert main(["run"]) == 0
+    assert "--juried-cache-responses" not in captured["args"]
     assert main(["run", "--", "scenarios"]) == 0
     assert captured["args"][-1] == "scenarios"
     assert str(tmp_path / "scenarios") not in captured["args"]

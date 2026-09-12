@@ -77,6 +77,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "gates_passed": 1,
         "gates_failed": 1,
         "transport_errors": 1,
+        "responses_from_cache": 0,
         "criteria_without_scenarios": ["tone"],
     }
     assert [c["id"] for c in report["criteria"]] == ["hours", "refunds", "tone"]
@@ -152,7 +153,8 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "attempt 2</span>failed</p>" in html
     assert "1065 ms" in html
     assert "max 1310 ms" in html
-    assert html.count('<span class="meta">cached</span>') == 1
+    assert html.count('<span class="meta">not measured</span>') == 1
+    assert "replayed" not in html
     assert "<details open>" in html
     assert 'href="http' not in html
     assert '<p><span class="label">assistant</span>hello</p>' in html

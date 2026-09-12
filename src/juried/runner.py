@@ -100,6 +100,10 @@ class ScenarioResult:
         return sum(1 for run in self.runs if run.error is not None)
 
     @property
+    def responses_from_cache(self) -> int:
+        return sum(1 for run in self.runs if run.response_cached)
+
+    @property
     def pass_rate(self) -> float:
         return self.passes / self.total if self.total else 0.0
 
@@ -141,6 +145,7 @@ class ScenarioResult:
             "runs": self.total,
             "passes": self.passes,
             "transport_errors": self.transport_errors,
+            "responses_from_cache": self.responses_from_cache,
             "pass_rate": round(self.pass_rate, 4),
             "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
             "threshold": self.threshold,
@@ -204,10 +209,13 @@ class Runner:
         history = [turn.model_dump() for turn in scenario.history]
         started = time.perf_counter()
         async with semaphore:
+            # Replaying responses defeats repeated sampling, so it is opt in and every
+            # replayed attempt is flagged in the record, the terminal and the report.
+            replay = self.config.run.cache_responses
             response_key = Cache.key(
                 "response", target.fingerprint(), scenario.message, history, attempt
             )
-            cached_response = self.cache.get("responses", response_key)
+            cached_response = self.cache.get("responses", response_key) if replay else None
             if cached_response is not None:
                 record.response = str(cached_response["text"])
                 record.response_cached = True
@@ -220,11 +228,12 @@ class Runner:
                     return record
                 record.response = response.text
                 record.response_ms = response.elapsed_ms
-                self.cache.put(
-                    "responses",
-                    response_key,
-                    {"text": response.text, "status_code": response.status_code},
-                )
+                if replay:
+                    self.cache.put(
+                        "responses",
+                        response_key,
+                        {"text": response.text, "status_code": response.status_code},
+                    )
 
             verdict_key = Cache.key(
                 "verdict",

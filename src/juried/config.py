@@ -40,6 +40,7 @@ class RunConfig(StrictModel):
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
     cache_dir: Path = Path(".juried")
+    cache_responses: bool = False
     report_dir: Path = Path("reports")
 
 

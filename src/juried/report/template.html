@@ -50,7 +50,14 @@
   <div><strong class="upheld">{{ report.summary.gates_passed }}</strong>gates upheld</div>
   <div><strong class="{{ 'failed' if report.summary.gates_failed else '' }}">{{ report.summary.gates_failed }}</strong>gates failed</div>
   <div><strong class="{{ 'warn' if report.summary.transport_errors else '' }}">{{ report.summary.transport_errors }}</strong>transport errors</div>
+  {% if report.summary.responses_from_cache %}
+  <div><strong class="failed">{{ report.summary.responses_from_cache }}</strong>responses replayed from cache</div>
+  {% endif %}
 </div>
+
+{% if report.summary.responses_from_cache %}
+<p class="failed">{{ report.summary.responses_from_cache }} of the responses in this report were replayed from the cache rather than sampled from the feature, so their pass rates say nothing about how the feature behaves now. Run without <code>--cache-responses</code> to sample again.</p>
+{% endif %}
 
 {% if report.summary.criteria_without_scenarios %}
 <p class="warn">Criteria with no scenarios: {{ report.summary.criteria_without_scenarios | join(', ') }}.</p>
@@ -83,12 +90,12 @@
     <tr>
       <td><a href="#{{ scenario.id }}">{{ scenario.name }}</a></td>
       <td>{{ scenario.kind.replace('_', ' ') }}</td>
-      <td class="num">{{ scenario.passes }} / {{ scenario.runs }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}</td>
+      <td class="num">{{ scenario.passes }} / {{ scenario.runs }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num bound">{{ scenario.interval.lower | percent }}</td>
       <td class="num">{{ scenario.threshold | percent }}<br><span class="meta">{% if scenario.required_passes is none %}unattainable{% else %}needs {{ scenario.required_passes }} / {{ scenario.runs }}{% endif %}</span></td>
       <td class="num">{{ scenario.interval.upper | percent }}</td>
-      <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">cached</span>{% endif %}</td>
+      <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">not measured</span>{% endif %}</td>
       <td class="{{ 'upheld' if scenario.gate_passed else 'failed' }}">{{ 'upheld' if scenario.gate_passed else 'failed' }}</td>
     </tr>
   {% endfor %}

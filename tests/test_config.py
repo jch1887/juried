@@ -18,6 +18,8 @@ def test_defaults(tmp_path: Path) -> None:
     assert config.run.cache_responses is False
     assert config.judge.provider == "anthropic"
     assert config.judge.temperature is None
+    assert config.judge.votes == 1
+    assert config.calibration_path == tmp_path / "calibration"
     assert config.target.body == {"message": "{{message}}", "history": "{{history}}"}
     assert config.target.response_path == "reply"
     assert config.criteria_path == tmp_path / "acceptance.md"
@@ -77,6 +79,12 @@ def test_env_overrides(tmp_path: Path) -> None:
     assert config.cache_path == Path("/tmp/elsewhere")
     assert config.judge.model == "claude-opus-5"
     assert config.target.url == "http://override/chat"
+
+
+def test_votes_must_be_odd(tmp_path: Path) -> None:
+    assert parse_config(MINIMAL + "[judge]\nvotes = 3\n", tmp_path, environ={}).judge.votes == 3
+    with pytest.raises(ConfigError, match="odd"):
+        parse_config(MINIMAL + "[judge]\nvotes = 2\n", tmp_path, environ={})
 
 
 def test_unknown_keys_rejected(tmp_path: Path) -> None:

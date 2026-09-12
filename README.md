@@ -8,9 +8,9 @@ juried treats your LLM powered feature as a black box behind an HTTP endpoint. Y
 acceptance criteria in plain English, juried generates test scenarios from them, runs each
 scenario repeatedly, has a pinned LLM judge mark every response, and reports pass rates
 with confidence intervals. Scenarios are ordinary pytest tests, so `-k`, `-x`, markers
-and `--junitxml` all work and the results fit an existing CI job. The name says how it
-works: the feature goes before a jury of repeated runs and only passes when the panel's
-verdict holds.
+and `--junitxml` all work and the results fit an existing CI job. The repeated runs are
+of the feature, not of the verdict: by default each response gets one verdict from one
+model, and `juried calibrate` tells you how far to trust that model.
 
 ## Install
 
@@ -28,6 +28,9 @@ juried init        # writes juried.toml and an example acceptance.md
 juried generate    # turns each criterion into scenarios/generated/<criterion>.yaml
 juried run         # runs every scenario N times under pytest and writes the report
 ```
+
+A fourth, `juried calibrate`, judges responses your team has already labelled and reports
+how often the judge agrees. See "Trusting the judge" below.
 
 `juried run` accepts pytest arguments after its own, for example
 `juried run --runs 20 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
@@ -168,6 +171,41 @@ non-determinism. juried refuses to let that pass quietly. The header says
 in the report, and the summary ends with a warning counting the replayed responses.
 Do not cache `.juried/cache/responses` in CI, and do not set `cache_responses` there.
 
+## Trusting the judge
+
+An LLM judge is a model like any other, and juried does not pretend otherwise. What it
+gives you:
+
+- **One verdict per response by default.** Each response is judged once by the configured
+  model. The judge's reason is stored with every verdict, and every verdict is appended to
+  `.juried/verdicts.jsonl` with the model, prompt version and timestamp, so any verdict can
+  be audited later.
+- **Votes, when you want agreement measured.** Set `votes = 3` (any odd number) under
+  `[judge]` to judge each response that many times and take the majority. The report then
+  shows the number of split verdicts per scenario and the pytest summary flags them
+  (`judge split on 2`). Split verdicts mean the expectation is ambiguous or the judge is
+  unreliable on it; either way, look at the wording before trusting the number.
+- **Calibration against human labels.** Put responses your team has judged by hand under
+  `calibration/`, then run `juried calibrate`. It judges each one with the configured
+  model and prints every disagreement, the accuracy, and the counts of false passes and
+  false fails. `--min-accuracy 0.9` makes it exit non zero below that figure, so a judge
+  change is caught in CI. The result is also written to `reports/juried-calibration.json`.
+
+```yaml
+criterion: refund-policy
+cases:
+  - name: Vague answer without the window
+    message: I want my money back on a jumper that does not fit.
+    expected: States the "14 days" return window and that the refund is "full".
+    response: Returns are accepted for a full refund, please contact us to arrange one.
+    verdict: fail
+    note: drops the 14 day window
+```
+
+Label at least a handful of cases per criterion, including borderline responses and ones
+that contain the right words for the wrong reason. Rerun `calibrate` whenever the judge
+model, temperature or prompt changes.
+
 ## The report
 
 After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.
@@ -193,9 +231,16 @@ juried generate          # uses the stub provider from juried.toml
 juried run
 ```
 
-The stub judge passes a response that contains every `"quoted phrase"` in `expected`.
+The stub judge is a substring matcher: it passes any non empty response that contains every
+`"quoted phrase"` in `expected` and ignores the rest of the expectation. It shows the
+mechanics of runs, gates and reports, and says nothing about how an LLM judge behaves.
 One hand written refund scenario fails its gate on purpose, because the fake bot drops
 the 14 day detail every fourth time, which is the kind of flakiness juried exists to catch.
+
+`juried calibrate` in the same directory runs the stub against the labelled responses in
+`calibration/refunds.yaml` and reports where it disagrees with the human labels. The stub
+gets the "right words, wrong answer" cases wrong, which is the point: calibrate before you
+trust any judge, and swap `provider` for a real one when you have a key.
 
 ## Development
 

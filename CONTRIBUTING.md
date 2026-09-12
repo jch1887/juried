@@ -19,9 +19,10 @@ them end to end without API keys.
 - `src/juried/judge/`: providers. `base.py` holds the interface and the shared judge and
   generation logic, `prompts.py` the pinned prompts, `stub.py` a key free provider.
 - `src/juried/runner.py`: repeated runs, concurrency and caching.
+- `src/juried/calibrate.py`: `juried calibrate`, the judge against human labelled responses.
 - `src/juried/pytest_plugin.py`: collection of YAML scenarios as pytest items.
 - `src/juried/report/`: JSON and single file HTML output.
-- `src/juried/cli.py`: `init`, `generate` and `run`.
+- `src/juried/cli.py`: `init`, `generate`, `calibrate` and `run`.
 
 Extension points for later stages: a new `Target` implementation for UI driving, a new
 `Provider` for other judges, a `turns` field on `Scenario` for multi turn conversations,

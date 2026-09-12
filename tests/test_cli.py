@@ -86,6 +86,66 @@ def test_generate_then_run(
     assert str(tmp_path / "scenarios") not in captured["args"]
 
 
+CALIBRATION = """
+criterion: opening-hours
+cases:
+  - name: Right
+    message: When are you open?
+    expected: Gives the "9am" opening time.
+    response: We open at 9am.
+    verdict: pass
+  - name: Wrong words
+    message: When are you open?
+    expected: Gives the "9am" opening time.
+    response: We open at nine.
+    verdict: fail
+  - name: Right words wrong answer
+    message: When are you open?
+    expected: Gives the "9am" opening time.
+    response: We never open at 9am, only at noon.
+    verdict: fail
+    note: stub cannot see this
+"""
+
+
+def test_calibrate_reports_disagreements(
+    tmp_path: Path, fake_bot_url: str, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    write_project(tmp_path, fake_bot_url)
+    monkeypatch.chdir(tmp_path)
+    assert main(["calibrate"]) == 2
+    assert "no calibration directory" in capsys.readouterr().err
+    (tmp_path / "calibration").mkdir()
+    (tmp_path / "calibration" / "hours.yaml").write_text(CALIBRATION)
+    assert main(["calibrate"]) == 0
+    out = capsys.readouterr().out
+    assert "calibrating stub/stub against 3 labelled response(s)" in out
+    assert (
+        "  false pass: opening-hours-right-words-wrong-answer: human says fail, judge says "
+        "pass: response mentions every expected phrase [stub cannot see this]"
+    ) in out
+    assert (
+        "judge agreed with the human label on 2/3 (0.67): 1 false pass(es), 0 false fail(s)"
+    ) in out
+    assert "unanimous" not in out
+    report = json.loads((tmp_path / "reports" / "juried-calibration.json").read_text())
+    assert report["summary"] == {
+        "cases": 3,
+        "agreed": 2,
+        "accuracy": 0.6667,
+        "false_passes": 1,
+        "false_fails": 0,
+        "unanimous": 3,
+    }
+    assert report["judge"] == {"provider": "stub", "model": "stub", "votes": 1}
+    assert [case["outcome"] for case in report["cases"]] == ["agrees", "agrees", "false_pass"]
+    assert main(["calibrate", "--min-accuracy", "0.9"]) == 1
+    assert "judge accuracy 0.67 is below 0.90" in capsys.readouterr().out
+    (tmp_path / "calibration" / "bad.yaml").write_text("criterion: nope\ncases:\n  - name: x\n")
+    assert main(["calibrate"]) == 2
+    assert "case 1 is invalid" in capsys.readouterr().err
+
+
 def test_run_end_to_end_in_subprocess(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester.path, fake_bot_url)
     scenarios = pytester.mkdir("scenarios")

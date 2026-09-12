@@ -69,6 +69,8 @@ scenarios_per_criterion = 6
 def test_env_overrides(tmp_path: Path) -> None:
     environ = {
         "JURIED_RUN_RUNS": "3",
+        "JURIED_GENERATE_TEMPERATURE": "0.9",
+        "JURIED_CRITERIA_FILE": "criteria.md",
         "JURIED_RUN_CACHE_DIR": "/tmp/elsewhere",
         "JURIED_JUDGE_MODEL": "claude-opus-5",
         "JURIED_TARGET_URL": "http://override/chat",
@@ -80,6 +82,27 @@ def test_env_overrides(tmp_path: Path) -> None:
     assert config.cache_path == Path("/tmp/elsewhere")
     assert config.judge.model == "claude-opus-5"
     assert config.target.url == "http://override/chat"
+    assert config.generate.temperature == 0.9
+    assert config.criteria.file == Path("criteria.md")
+
+
+def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path) -> None:
+    text = MINIMAL + '[judge]\nprovider = "openai"\nmodel = "gpt-4.1"\ntemperature = 0.0\n'
+    text += 'base_url = "http://judge.test"\n'
+    config = parse_config(text, tmp_path, environ={})
+    assert config.judge.temperature == 0.0
+    assert config.generate_temperature is None
+    assert config.generate_base_url == "http://judge.test"
+    same = parse_config(text + "[generate]\ntemperature = 1.0\n", tmp_path, environ={})
+    assert same.generate_temperature == 1.0
+    other = parse_config(text + '[generate]\nprovider = "anthropic"\n', tmp_path, environ={})
+    assert other.generate_base_url is None
+    explicit = parse_config(
+        text + '[generate]\nprovider = "anthropic"\nbase_url = "http://gen.test"\n',
+        tmp_path,
+        environ={},
+    )
+    assert explicit.generate_base_url == "http://gen.test"
 
 
 def test_votes_must_be_odd(tmp_path: Path) -> None:

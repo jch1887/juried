@@ -24,10 +24,17 @@ class TargetConfigError(Exception):
 
 
 def render_body(template: Any, message: str, history: Sequence[Turn]) -> Any:
+    # A value that is exactly a placeholder becomes the value itself, keeping its type; a
+    # placeholder inside longer text is replaced by its text, the history as JSON.
+    turns = [turn.model_dump() for turn in history]
     if isinstance(template, str):
+        if template == MESSAGE_PLACEHOLDER:
+            return message
         if template == HISTORY_PLACEHOLDER:
-            return [turn.model_dump() for turn in history]
-        return template.replace(MESSAGE_PLACEHOLDER, message)
+            return turns
+        return template.replace(MESSAGE_PLACEHOLDER, message).replace(
+            HISTORY_PLACEHOLDER, json.dumps(turns, ensure_ascii=False)
+        )
     if isinstance(template, dict):
         return {key: render_body(value, message, history) for key, value in template.items()}
     if isinstance(template, list):
@@ -52,14 +59,20 @@ def extract_path(data: Any, path: str) -> Any:
     return current
 
 
-def expand_env(headers: Mapping[str, str], environ: Mapping[str, str]) -> dict[str, str]:
+def expand_env(value: Any, environ: Mapping[str, str]) -> Any:
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in environ:
-            raise TargetConfigError(f"header refers to unset environment variable {name}")
+            raise TargetConfigError(f"[target] refers to unset environment variable {name}")
         return environ[name]
 
-    return {key: ENV_REFERENCE.sub(replace, value) for key, value in headers.items()}
+    if isinstance(value, str):
+        return ENV_REFERENCE.sub(replace, value)
+    if isinstance(value, dict):
+        return {key: expand_env(item, environ) for key, item in value.items()}
+    if isinstance(value, list):
+        return [expand_env(item, environ) for item in value]
+    return value
 
 
 class HttpTarget:
@@ -71,7 +84,11 @@ class HttpTarget:
     ) -> None:
         self.config = config
         self.client = client
-        self.headers = expand_env(config.headers, os.environ if environ is None else environ)
+        # Secrets are expanded here and never reach the fingerprint, which hashes the template.
+        env = os.environ if environ is None else environ
+        self.url: str = expand_env(config.url, env)
+        self.headers: dict[str, str] = expand_env(config.headers, env)
+        self.body_template = expand_env(config.body, env)
 
     def fingerprint(self) -> str:
         return json.dumps(
@@ -85,12 +102,12 @@ class HttpTarget:
         )
 
     async def send(self, message: str, history: Sequence[Turn]) -> TargetResponse:
-        body = render_body(self.config.body, message, history)
+        body = render_body(self.body_template, message, history)
         started = time.perf_counter()
         response = await request_json(
             self.client,
             self.config.method,
-            self.config.url,
+            self.url,
             headers=self.headers,
             body=body,
             retries=self.config.retries,
@@ -100,7 +117,7 @@ class HttpTarget:
             payload = response.json()
         except ValueError as exc:
             raise TransportFailure(
-                f"response from {self.config.url} is not JSON: {response.text[:200]!r}",
+                f"response from {self.url} is not JSON: {response.text[:200]!r}",
                 status_code=response.status_code,
             ) from exc
         text = extract_path(payload, self.config.response_path)

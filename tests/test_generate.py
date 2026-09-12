@@ -4,7 +4,7 @@ from juried.config import parse_config
 from juried.criteria import Criterion
 from juried.generate import generate_scenarios, output_path
 from juried.judge import StubProvider
-from juried.scenarios import load_scenarios
+from juried.scenarios import ScenarioDraft, Turn, load_scenarios
 
 CRITERIA = [
     Criterion("hours", "Opening hours", "States the hours."),
@@ -28,6 +28,33 @@ def test_generate_writes_reviewable_yaml(tmp_path: Path) -> None:
         "refunds-direct-question",
         "refunds-terse-request",
     ]
+
+
+def test_generated_scenarios_keep_their_history(tmp_path: Path) -> None:
+    class FollowUpProvider(StubProvider):
+        async def generate(self, criterion: Criterion, count: int) -> list[ScenarioDraft]:
+            return [
+                ScenarioDraft(
+                    name="Follows up",
+                    kind="edge_case",
+                    message="and refunds?",
+                    expected="Explains refunds.",
+                    history=[
+                        Turn(role="user", content="delivery?"),
+                        Turn(role="assistant", content="3 to 5 days."),
+                    ],
+                )
+            ]
+
+    config = parse_config('[target]\nurl = "http://x/"\n[judge]\nprovider = "stub"\n', tmp_path)
+    outcome = generate_scenarios(config, CRITERIA[:1], FollowUpProvider())
+    text = outcome.written[0].read_text()
+    assert "history:" in text and "content: 3 to 5 days." in text
+    scenario = load_scenarios(config.scenarios_path)[0]
+    assert [turn.role for turn in scenario.history] == ["user", "assistant"]
+    assert (
+        ScenarioDraft.model_validate({"name": "n", "message": "m", "expected": "e"}).history == []
+    )
 
 
 def test_generate_skips_existing_unless_forced(tmp_path: Path) -> None:

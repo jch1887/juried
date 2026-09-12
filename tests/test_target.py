@@ -53,6 +53,31 @@ def test_expand_env() -> None:
     }
     with pytest.raises(TargetConfigError, match="TOKEN"):
         expand_env(headers, {})
+    assert expand_env("https://${HOST}/v1/${PATH}", {"HOST": "h", "PATH": "p"}) == "https://h/v1/p"
+    nested = {"tenant": "${TENANT}", "options": [{"key": "${KEY}"}, 3, None], "flag": True}
+    assert expand_env(nested, {"TENANT": "t", "KEY": "k"}) == {
+        "tenant": "t",
+        "options": [{"key": "k"}, 3, None],
+        "flag": True,
+    }
+
+
+def test_placeholders_follow_one_rule() -> None:
+    history = [Turn(role="user", content="hi"), Turn(role="assistant", content='say "yes"')]
+    template = {
+        "exact_message": "{{message}}",
+        "exact_history": "{{history}}",
+        "inline_message": "User said: {{message}}!",
+        "inline_history": "Context: {{history}}",
+        "both": "{{history}} then {{message}}",
+    }
+    rendered = render_body(template, "what?", history)
+    turns = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": 'say "yes"'}]
+    assert rendered["exact_message"] == "what?"
+    assert rendered["exact_history"] == turns
+    assert rendered["inline_message"] == "User said: what?!"
+    assert rendered["inline_history"] == "Context: " + json.dumps(turns)
+    assert json.loads(rendered["both"].split(" then ")[0]) == turns
 
 
 def make_target(
@@ -90,6 +115,31 @@ def test_send_success_and_header_expansion() -> None:
     assert response.elapsed_ms >= 0
     assert seen["headers"]["x-key"] == "secret"
     assert seen["body"] == {"message": "hi", "history": [{"role": "user", "content": "earlier"}]}
+
+
+def test_env_expands_in_url_and_body_but_not_fingerprint() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"reply": "ok"})
+
+    config = TargetConfig(
+        url="http://${HOST}/chat",
+        body={"message": "{{message}}", "tenant": "${TENANT}", "nested": {"key": "${KEY}"}},
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    environ = {"HOST": "bot.test", "TENANT": "acme", "KEY": "s3cret"}
+    target = HttpTarget(config, client, environ=environ)
+    run(target.send("hi", []))
+    assert seen["url"] == "http://bot.test/chat"
+    assert seen["body"] == {"message": "hi", "tenant": "acme", "nested": {"key": "s3cret"}}
+    assert "s3cret" not in target.fingerprint()
+    assert "acme" not in target.fingerprint()
+    assert "${HOST}" in target.fingerprint()
+    with pytest.raises(TargetConfigError, match="KEY"):
+        HttpTarget(config, client, environ={"HOST": "h", "TENANT": "t"})
 
 
 def test_retries_on_transport_error_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:

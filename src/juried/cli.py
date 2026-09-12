@@ -27,9 +27,10 @@ INIT_CONFIG = """# juried configuration. Any value can be overridden with an env
 # named JURIED_<SECTION>_<KEY>, for example JURIED_RUN_RUNS=20.
 
 [target]
-# {{message}} is replaced with the scenario message. A value of exactly
-# "{{history}}" is replaced with the earlier turns as a list of {role, content}.
-# Header values may reference environment variables as ${NAME}.
+# A value that is exactly "{{message}}" or "{{history}}" becomes the scenario message
+# or the earlier turns as a list of {role, content}; inside longer text {{message}} is
+# replaced with the message and {{history}} with the turns as JSON. url, headers and
+# body may reference environment variables as ${NAME}.
 url = "http://127.0.0.1:8765/chat"
 method = "POST"
 headers = {}
@@ -77,7 +78,9 @@ votes = 1
 concurrency = 4
 
 [generate]
-# provider and model default to the judge settings.
+# provider and model default to the judge settings. temperature does not: generation
+# wants variety, so leave it unset for the model's default or set one here.
+# temperature = 1.0
 scenarios_per_criterion = 4
 """
 
@@ -188,9 +191,9 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
     provider = build_provider(
         config.generate_provider,
         config.generate_model,
-        config.judge.temperature,
+        config.generate_temperature,
         config.generate.max_tokens,
-        config.judge.base_url,
+        config.generate_base_url,
     )
     print(f"generating scenarios with {provider.name}/{provider.model}")
     outcome = generate_scenarios(

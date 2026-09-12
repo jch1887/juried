@@ -28,12 +28,12 @@ class ScenarioDraft(StrictModel):
     kind: ScenarioKind = "custom"
     message: str = Field(min_length=1)
     expected: str = Field(min_length=1)
+    history: list[Turn] = Field(default_factory=list)
 
 
 class Scenario(ScenarioDraft):
     id: str = Field(min_length=1)
     criterion: str = Field(min_length=1)
-    history: list[Turn] = Field(default_factory=list)
     runs: int | None = Field(default=None, ge=1)
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     tags: list[str] = Field(default_factory=list)

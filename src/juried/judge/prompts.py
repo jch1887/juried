@@ -6,7 +6,7 @@ from typing import Any
 from juried.criteria import Criterion
 from juried.scenarios import Scenario, Turn
 
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
 
 JUDGE_SYSTEM = """You are the judge in an acceptance test suite for a software product feature \
 that uses a language model. You are given one acceptance criterion, one test scenario written \
@@ -47,9 +47,10 @@ JUDGE_SCHEMA: dict[str, Any] = {
 
 GENERATE_SYSTEM = """You write acceptance test scenarios for a QA team testing a product feature \
 that uses a language model. The feature is a black box that takes a user message and returns text. \
-Given one acceptance criterion, produce a set of single turn scenarios: realistic user messages a \
-tester would send, each with a plain English description of what a passing response must contain \
-or do.
+Given one acceptance criterion, produce a set of scenarios: realistic user messages a tester \
+would send, each with a plain English description of what a passing response must contain or do. \
+A scenario may carry a short history of earlier user and assistant turns when the message only \
+makes sense as a follow up, such as "and refunds?" after a delivery answer; most need none.
 
 Rules:
 - Produce a mix of happy path scenarios and edge cases (ambiguous wording, typos, terse messages, \
@@ -58,10 +59,12 @@ out of scope requests, attempts to get the feature to contradict the criterion).
 - Each expectation must be checkable by reading the response alone, and must be specific enough \
 that two reviewers would agree on it.
 - Names are short, unique and descriptive, written in sentence case.
+- history is a list of {"role": "user" or "assistant", "content": ...} and is usually empty. \
+Keep it to one or two exchanges and make the assistant turns plausible for the feature.
 - Use UK English.
 
 Respond with JSON only: {"scenarios": [{"name": ..., "kind": "happy_path" or "edge_case", \
-"message": ..., "expected": ...}]}."""
+"message": ..., "expected": ..., "history": [...]}]}."""
 
 GENERATE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -75,8 +78,20 @@ GENERATE_SCHEMA: dict[str, Any] = {
                     "kind": {"type": "string", "enum": ["happy_path", "edge_case"]},
                     "message": {"type": "string"},
                     "expected": {"type": "string"},
+                    "history": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {"type": "string", "enum": ["user", "assistant"]},
+                                "content": {"type": "string"},
+                            },
+                            "required": ["role", "content"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
-                "required": ["name", "kind", "message", "expected"],
+                "required": ["name", "kind", "message", "expected", "history"],
                 "additionalProperties": False,
             },
         }

@@ -99,8 +99,8 @@ def pytest_configure(config: pytest.Config) -> None:
             juried_config.run.threshold = threshold
         if config.getoption("--juried-cache-responses"):
             juried_config.run.cache_responses = True
-        # Resolve header secrets now so a missing variable fails before any scenario runs.
-        expand_env(juried_config.target.headers, os.environ)
+        # Resolve ${NAME} references now so a missing variable fails before any scenario runs.
+        expand_env(juried_config.target.model_dump(), os.environ)
         state = JuriedState(juried_config, path, not config.getoption("--juried-no-cache"))
     except (ConfigError, CriteriaError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc

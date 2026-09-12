@@ -59,6 +59,7 @@ def drafts_to_scenarios(
                 kind=draft.kind,
                 message=draft.message,
                 expected=draft.expected,
+                history=draft.history,
             )
         )
     return scenarios

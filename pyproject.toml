@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "juried"
-version = "0.1.0"
+version = "0.1.1"
 description = "Acceptance testing for LLM features, built for QA teams."
 readme = "README.md"
 license = "MIT"

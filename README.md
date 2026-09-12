@@ -200,7 +200,8 @@ Every run samples the feature afresh. That is the point of the tool: a scenario 
 its flakiness if each attempt is a new request, so responses are never replayed by default.
 Verdicts are cached in `.juried/cache/verdicts` by content hash, so a response the judge
 has already seen, word for word, is not judged again; the cache key includes the judge
-model, temperature and prompt version, and `--no-cache` bypasses it.
+model, temperature and prompt version, and `--no-cache` bypasses it. Verdicts are not
+cached at all when `votes` is above 1, since the point of votes is to re-measure agreement.
 
 For development you can opt in to replaying responses with `juried run --cache-responses`
 (or `cache_responses = true` under `[run]`). Responses are then stored by target, message,
@@ -224,7 +225,10 @@ gives you:
   `[judge]` to judge each response that many times and take the majority. The report then
   shows the number of split verdicts per scenario and the pytest summary flags them
   (`judge split on 2`). Split verdicts mean the expectation is ambiguous or the judge is
-  unreliable on it; either way, look at the wording before trusting the number.
+  unreliable on it; either way, look at the wording before trusting the number. With
+  votes above 1 verdicts are never read from or written to the cache, because a cached
+  majority would freeze the agreement figure; every run re-judges and re-measures it, and
+  the header says so (`cache off (votes > 1)`).
 
   Be clear about what votes measure. Every vote comes from the same model with the same
   prompt, so agreement measures the judge's stability, not its correctness. A judge that

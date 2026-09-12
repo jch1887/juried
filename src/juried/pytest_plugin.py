@@ -137,7 +137,10 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
 def cache_mode(state: JuriedState) -> str:
     if not state.cache.enabled:
         return "off"
-    return "verdicts and responses" if state.config.run.cache_responses else "verdicts only"
+    responses = state.config.run.cache_responses
+    if state.config.judge.votes > 1:
+        return "responses only, verdicts re-judged (votes > 1)" if responses else "off (votes > 1)"
+    return "verdicts and responses" if responses else "verdicts only"
 
 
 def pytest_collect_file(file_path: Path, parent: pytest.Collector) -> pytest.Collector | None:

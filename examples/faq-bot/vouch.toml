@@ -1,0 +1,14 @@
+[target]
+url = "http://127.0.0.1:8765/chat"
+body = { message = "{{message}}", history = "{{history}}" }
+response_path = "reply"
+
+[run]
+runs = 10
+threshold = 0.7
+
+[judge]
+provider = "stub"
+
+[generate]
+scenarios_per_criterion = 2

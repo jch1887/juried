@@ -108,6 +108,10 @@ class ScenarioResult:
         return self.total > 0 and self.interval.lower >= self.threshold
 
     @property
+    def successes(self) -> list[RunRecord]:
+        return [run for run in self.runs if run.passed]
+
+    @property
     def failures(self) -> list[RunRecord]:
         return [run for run in self.runs if not run.passed]
 

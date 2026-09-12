@@ -122,8 +122,9 @@ lists each acceptance criterion with its description, a table of its scenarios s
 passes, pass rate, interval, threshold, response latency and gate result, and beneath the
 table each scenario's message, expectation and every failing run with the response and
 the judge's reason. Criteria with no scenarios are called out so coverage gaps are
-visible. The JSON file holds the same structure plus every attempt, for anyone who wants
-to chart trends.
+visible. The JSON file holds the same structure plus every attempt, with each scenario's
+passing and failing runs also listed separately as `successes` and `failures`, each with
+the response and the judge's reason, for anyone who wants to chart trends.
 
 ## Try it without API keys
 

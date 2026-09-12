@@ -89,6 +89,12 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert scenario["history"][0]["content"] == "hi"
     refunds = report["criteria"][1]["scenarios"][0]
     assert refunds["gate_passed"] is False
+    assert [s["attempt"] for s in scenario["successes"]] == [1, 2, 3]
+    assert scenario["failures"] == []
+    assert [s["attempt"] for s in refunds["successes"]] == [1]
+    assert refunds["successes"][0]["outcome"] == "pass"
+    assert refunds["successes"][0]["reason"] == "ok"
+    assert refunds["successes"][0]["model"] == "stub"
     assert [f["attempt"] for f in refunds["failures"]] == [2, 3]
     assert refunds["failures"][0]["reason"] == "does not mention 14 days"
     assert refunds["failures"][0]["judged_at"] == "2026-09-12T10:00:00+00:00"

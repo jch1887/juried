@@ -9,22 +9,24 @@ from typing import Any
 from juried import __version__
 from juried.config import Config
 from juried.criteria import Criterion
-from juried.runner import ScenarioResult
+from juried.runner import RunRecord, ScenarioResult
+
+
+def run_entry(run: RunRecord) -> dict[str, Any]:
+    return {
+        "attempt": run.attempt,
+        "outcome": run.outcome,
+        "response": run.response,
+        "reason": run.reason,
+        "model": run.verdict.model if run.verdict else None,
+        "judged_at": run.verdict.judged_at if run.verdict else None,
+    }
 
 
 def scenario_entry(result: ScenarioResult) -> dict[str, Any]:
     entry = result.to_dict()
-    entry["failures"] = [
-        {
-            "attempt": run.attempt,
-            "outcome": run.outcome,
-            "response": run.response,
-            "reason": run.reason,
-            "model": run.verdict.model if run.verdict else None,
-            "judged_at": run.verdict.judged_at if run.verdict else None,
-        }
-        for run in result.failures
-    ]
+    entry["successes"] = [run_entry(run) for run in result.successes]
+    entry["failures"] = [run_entry(run) for run in result.failures]
     return entry
 
 

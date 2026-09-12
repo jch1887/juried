@@ -70,6 +70,7 @@ def build_report(
             "gates_passed": gates_passed,
             "gates_failed": len(results) - gates_passed,
             "transport_errors": sum(r.transport_errors for r in results),
+            "responses_from_cache": sum(r.responses_from_cache for r in results),
             "criteria_without_scenarios": [
                 entry["id"] for entry in criteria_entries if not entry["scenarios"]
             ],

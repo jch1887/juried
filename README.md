@@ -119,10 +119,25 @@ stricter threshold needs more runs, and juried warns when a gate can never pass.
 
 A failing gate is a normal pytest failure that shows the pass rate, the interval, the
 threshold and the first failing transcript with the judge's reason. An HTTP error from
-your endpoint is reported as a transport error, separately from a judge fail. Responses
-and verdicts are cached in `.juried/` by content hash, so re-runs during development are
-cheap; pass `--no-cache` to skip it. Every verdict is appended to `.juried/verdicts.jsonl`
-with the judge model and timestamp.
+your endpoint is reported as a transport error, separately from a judge fail. Every verdict
+is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
+
+## Caching
+
+Every run samples the feature afresh. That is the point of the tool: a scenario only shows
+its flakiness if each attempt is a new request, so responses are never replayed by default.
+Verdicts are cached in `.juried/cache/verdicts` by content hash, so a response the judge
+has already seen, word for word, is not judged again; the cache key includes the judge
+model, temperature and prompt version, and `--no-cache` bypasses it.
+
+For development you can opt in to replaying responses with `juried run --cache-responses`
+(or `cache_responses = true` under `[run]`). Responses are then stored by target, message,
+history and attempt number and read back on the next run, which makes the run free but
+also frozen: a replayed scenario returns the same attempts every time and cannot detect
+non-determinism. juried refuses to let that pass quietly. The header says
+`cache verdicts and responses`, each replayed scenario is marked in the pytest output and
+in the report, and the summary ends with a warning counting the replayed responses.
+Do not cache `.juried/cache/responses` in CI, and do not set `cache_responses` there.
 
 ## The report
 

@@ -60,7 +60,8 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     result.assert_outcomes(passed=1, failed=1)
     result.stdout.re_match_lines(
         [
-            r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, cache on",
+            r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, "
+            r"cache verdicts only",
             r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(lower 0.00 < 0.50\).*",
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
@@ -79,6 +80,9 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     assert (pytester.path / "reports" / "juried-report.html").is_file()
     assert (pytester.path / "reports" / "juried-report.json").is_file()
     assert (pytester.path / ".juried" / "verdicts.jsonl").is_file()
+    assert (pytester.path / ".juried" / "cache" / "verdicts").is_dir()
+    assert not (pytester.path / ".juried" / "cache" / "responses").exists()
+    assert "replayed from" not in result.stdout.str()
 
 
 def test_keyword_and_marker_selection(pytester: pytest.Pytester, fake_bot_url: str) -> None:
@@ -132,6 +136,31 @@ def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) 
     result.assert_outcomes(passed=1, failed=1)
     result.stdout.re_match_lines([r"juried: config .*, runs 2, threshold 0.1, cache off"])
     assert not (pytester.path / ".juried" / "cache").exists()
+
+
+def test_replayed_responses_are_shouted_about(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url)
+    first = pytester.runpytest("--juried-cache-responses", "-v", "-k", "hours")
+    first.assert_outcomes(passed=1)
+    first.stdout.re_match_lines(
+        [
+            r"juried: config .*, cache verdicts and responses",
+            r"juried: warning: responses are replayed from the cache where present.*",
+        ]
+    )
+    assert "replayed from" not in first.stdout.str().split("juried summary")[1]
+    second = pytester.runpytest("--juried-cache-responses", "-v", "-k", "hours")
+    second.assert_outcomes(passed=1)
+    second.stdout.fnmatch_lines(
+        [
+            "*PASSED 4/4 (lower 0.51 >= 0.50) [[]4 response(s) replayed from cache[]]*",
+            "*juried: warning: 4 of 4 responses were replayed from *responses and did not "
+            "sample the feature; run without --cache-responses to sample again",
+        ]
+    )
+    plain = pytester.runpytest("-v", "-k", "hours")
+    plain.assert_outcomes(passed=1)
+    assert "replayed from" not in plain.stdout.str()
 
 
 def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: str) -> None:

@@ -15,6 +15,7 @@ def test_defaults(tmp_path: Path) -> None:
     assert config.run.runs == 10
     assert config.run.threshold == 0.7
     assert config.run.concurrency == 4
+    assert config.run.cache_responses is False
     assert config.judge.provider == "anthropic"
     assert config.judge.temperature is None
     assert config.target.body == {"message": "{{message}}", "history": "{{history}}"}

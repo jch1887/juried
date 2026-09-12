@@ -50,7 +50,8 @@ report_dir = "reports"
 # no key and passes when the response contains every "quoted phrase" in expected.
 provider = "anthropic"
 model = "claude-sonnet-5"
-temperature = 0.0
+# Set temperature only for a model that accepts it; claude-sonnet-5 rejects the parameter.
+# temperature = 0.0
 
 [generate]
 # provider and model default to the judge settings.

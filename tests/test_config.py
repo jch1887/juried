@@ -16,7 +16,7 @@ def test_defaults(tmp_path: Path) -> None:
     assert config.run.threshold == 0.7
     assert config.run.concurrency == 4
     assert config.judge.provider == "anthropic"
-    assert config.judge.temperature == 0.0
+    assert config.judge.temperature is None
     assert config.target.body == {"message": "{{message}}", "history": "{{history}}"}
     assert config.target.response_path == "reply"
     assert config.criteria_path == tmp_path / "acceptance.md"

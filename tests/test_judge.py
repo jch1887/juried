@@ -7,10 +7,11 @@ import pytest
 
 from juried.criteria import Criterion
 from juried.judge import ProviderError, StubProvider, build_provider
-from juried.judge.anthropic import AnthropicProvider, supports_temperature
+from juried.judge.anthropic import AnthropicProvider
 from juried.judge.base import parse_json_object
 from juried.judge.openai import OpenAIProvider
 from juried.scenarios import Scenario
+from juried.transport import TransportFailure
 
 CRITERION = Criterion("hours", "Opening hours", "States the hours, 9am to 5pm.")
 SCENARIO = Scenario(
@@ -39,6 +40,24 @@ def test_stub_judge_checks_quoted_phrases() -> None:
     assert not empty.passed
 
 
+def test_quoted_phrases_are_verbatim_and_unquoted_text_is_not() -> None:
+    stub = StubProvider()
+    scenario = Scenario(
+        id="hours-weekend",
+        criterion="hours",
+        name="Asks about the weekend",
+        message="Are you open on Sunday?",
+        expected='Gives the "9am" opening time and explains that the shop shuts at weekends.',
+    )
+    paraphrased = run(
+        stub.judge(CRITERION, scenario, "From 9am on weekdays, closed Saturday and Sunday.")
+    )
+    assert paraphrased.passed
+    missing = run(stub.judge(CRITERION, scenario, "From nine in the morning, closed at weekends."))
+    assert not missing.passed
+    assert "'9am'" in missing.reason
+
+
 def test_stub_generate_is_deterministic() -> None:
     stub = StubProvider()
     drafts = run(stub.generate(CRITERION, 4))
@@ -63,13 +82,6 @@ def test_build_provider() -> None:
     assert isinstance(build_provider("stub", "x"), StubProvider)
     assert isinstance(build_provider("anthropic", "claude-sonnet-5"), AnthropicProvider)
     assert isinstance(build_provider("openai", "gpt-4.1"), OpenAIProvider)
-
-
-def test_supports_temperature() -> None:
-    assert supports_temperature("claude-sonnet-4-6")
-    assert supports_temperature("claude-haiku-4-5")
-    assert not supports_temperature("claude-sonnet-5")
-    assert not supports_temperature("claude-opus-5")
 
 
 def mock_client(handler: Any) -> httpx.AsyncClient:
@@ -110,23 +122,72 @@ def test_anthropic_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "acceptance test" in body["system"]
 
 
-def test_anthropic_omits_temperature_for_models_without_sampling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_anthropic_omits_temperature_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "key-123")
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
             json={"content": [{"type": "text", "text": '{"pass": true, "reason": "fine"}'}]},
         )
 
-    provider = AnthropicProvider("claude-sonnet-5", 0.0, 256, base_url="http://proxy.test/")
+    provider = AnthropicProvider("claude-sonnet-5", None, 256, base_url="http://proxy.test/")
     provider._client = mock_client(handler)
     assert run(provider.judge(CRITERION, SCENARIO, "9am to 5pm")).passed
     assert "temperature" not in seen["body"]
+    assert seen["url"] == "http://proxy.test/v1/messages"
+    assert json.loads(provider.fingerprint())["temperature"] is None
+
+
+def rejecting_temperature(message: str) -> Any:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert calls == 1, "a rejected temperature must not be retried"
+        return httpx.Response(400, json={"error": {"message": message}})
+
+    return handler
+
+
+def test_anthropic_rejected_temperature_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key-123")
+    provider = AnthropicProvider("claude-sonnet-5", 0.0, 256)
+    provider._client = mock_client(
+        rejecting_temperature("`temperature` is not supported for this model")
+    )
+    with pytest.raises(
+        ProviderError, match=r"claude-sonnet-5 does not accept temperature.*\[judge\]"
+    ):
+        run(provider.judge(CRITERION, SCENARIO, "x"))
+
+
+def test_openai_rejected_temperature_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    provider = OpenAIProvider("gpt-5", 0.0, 256)
+    provider._client = mock_client(
+        rejecting_temperature(
+            "Unsupported parameter: 'temperature' is not supported with this model."
+        )
+    )
+    with pytest.raises(ProviderError, match="remove temperature from \\[judge\\]"):
+        run(provider.judge(CRITERION, SCENARIO, "x"))
+
+
+def test_other_bad_requests_stay_transport_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    provider = OpenAIProvider("gpt-5", None, 256)
+    provider._client = mock_client(
+        rejecting_temperature(
+            "Unsupported parameter: 'temperature' is not supported with this model."
+        )
+    )
+    with pytest.raises(TransportFailure, match="HTTP 400"):
+        run(provider.judge(CRITERION, SCENARIO, "x"))
 
 
 def test_anthropic_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,6 +204,19 @@ def test_anthropic_refusal_is_provider_error(monkeypatch: pytest.MonkeyPatch) ->
         lambda request: httpx.Response(200, json={"stop_reason": "refusal", "content": []})
     )
     with pytest.raises(ProviderError, match="refused"):
+        run(provider.judge(CRITERION, SCENARIO, "x"))
+
+
+def test_anthropic_token_cap_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key-123")
+    provider = AnthropicProvider("claude-sonnet-5", None, 256)
+    provider._client = mock_client(
+        lambda request: httpx.Response(
+            200,
+            json={"stop_reason": "max_tokens", "content": [{"type": "thinking", "thinking": ""}]},
+        )
+    )
+    with pytest.raises(ProviderError, match=r"ran out of output tokens.*max_tokens.*256"):
         run(provider.judge(CRITERION, SCENARIO, "x"))
 
 

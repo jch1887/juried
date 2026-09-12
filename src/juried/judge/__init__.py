@@ -8,8 +8,8 @@ from juried.judge.stub import StubProvider
 def build_provider(
     name: ProviderName,
     model: str,
-    temperature: float = 0.0,
-    max_tokens: int = 512,
+    temperature: float | None = None,
+    max_tokens: int = 2048,
     base_url: str | None = None,
 ) -> Provider:
     if name == "stub":

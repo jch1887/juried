@@ -9,7 +9,7 @@ import pytest
 from juried.cache import Cache
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
-from juried.judge import build_provider
+from juried.judge import ProviderError, build_provider
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
@@ -46,7 +46,7 @@ class JuriedState:
             return None
         return (
             f"with {runs} runs the best possible lower bound is {best:.2f}, "
-            f"below the threshold {threshold:.2f}, so the gate can never pass. "
+            f"below the threshold {threshold:.2f}, so the gate can never be upheld. "
             "Raise runs or lower the threshold."
         )
 
@@ -170,6 +170,8 @@ class ScenarioItem(pytest.Item):
         if isinstance(excinfo.value, GateFailure):
             state = self.config.stash[STATE]
             return format_gate_failure(excinfo.value.result, state)
+        if isinstance(excinfo.value, ProviderError):
+            return f"juried: {excinfo.value}"
         return super().repr_failure(excinfo, style)
 
     def reportinfo(self) -> tuple[Path, int | None, str]:
@@ -197,7 +199,7 @@ def excerpt(text: str | None) -> str:
 
 
 def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
-    lines = [f"  first failing run: attempt {record.attempt} ({record.outcome})"]
+    lines = [f"  first failing run: attempt {record.attempt} ({record.label})"]
     lines.extend(f"    {turn.role}: {turn.content}" for turn in scenario.history)
     lines.append(f"    user: {scenario.message}")
     if record.error is not None:
@@ -214,9 +216,10 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
     lines = [
         f"juried gate failed for scenario {result.scenario.id!r} ({result.scenario.name})",
         f"  criterion: {result.criterion.id} ({result.criterion.title})",
-        f"  pass rate: {result.passes}/{result.total} = {result.pass_rate:.2f}",
-        f"  Wilson 95% interval: [{interval.lower:.2f}, {interval.upper:.2f}]",
-        f"  threshold: {result.threshold:.2f} on the lower bound",
+        f"  runs upheld: {result.passes}/{result.total} = {result.pass_rate:.2f}",
+        f"  lower bound: {interval.lower:.2f} (Wilson 95% interval {interval.lower:.2f} "
+        f"to {interval.upper:.2f})",
+        f"  threshold: {result.threshold:.2f}, gate upheld when the lower bound meets it",
         f"  transport errors: {result.transport_errors}",
     ]
     warning = state.gate_warning(result.total, result.threshold)

@@ -55,8 +55,11 @@ concurrency = 4
 [judge]
 provider = "anthropic"    # anthropic, openai or stub
 model = "claude-sonnet-5" # pinned and recorded with every verdict
-temperature = 0.0
 ```
+
+Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
+the parameter, so the example leaves it out; when it is unset nothing is sent and the report
+says so.
 
 `{{message}}` is replaced with the scenario message; a value of exactly `"{{history}}"`
 becomes the earlier turns as a list of `{role, content}` objects. `response_path` is a
@@ -99,10 +102,17 @@ scenarios:
     threshold: 0.8
 ```
 
+A phrase in double quotes inside `expected` must appear in the response word for word,
+ignoring case. Text outside quotes is judged on meaning. With
+`expected: Says returns are accepted within "14 days" for a full refund`, a response saying
+"you have 14 days and get every penny back" passes, while "a fortnight for a full refund"
+fails because `14 days` is missing. The stub judge applies the same rule.
+
 ## How a scenario passes
 
 Each scenario runs `runs` times. The judge marks each response pass or fail with a one
-line reason, using a fixed prompt at temperature 0. juried computes the pass rate and its
+line reason, using a fixed prompt and the configured temperature, if any. juried computes the
+pass rate and its
 Wilson 95% interval, and the scenario passes when the lower bound meets `threshold`. With
 10 runs a perfect score gives a lower bound of 0.72, so the default threshold is 0.7; a
 stricter threshold needs more runs, and juried warns when a gate can never pass.
@@ -122,9 +132,8 @@ lists each acceptance criterion with its description, a table of its scenarios s
 passes, pass rate, interval, threshold, response latency and gate result, and beneath the
 table each scenario's message, expectation and every failing run with the response and
 the judge's reason. Criteria with no scenarios are called out so coverage gaps are
-visible. The JSON file holds the same structure plus every attempt, with each scenario's
-passing and failing runs also listed separately as `successes` and `failures`, each with
-the response and the judge's reason, for anyone who wants to chart trends.
+visible. The JSON file holds the same structure plus every attempt, for anyone who wants
+to chart trends.
 
 ## Try it without API keys
 

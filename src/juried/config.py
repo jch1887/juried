@@ -46,14 +46,15 @@ class RunConfig(StrictModel):
 class JudgeConfig(StrictModel):
     provider: ProviderName = "anthropic"
     model: str = "claude-sonnet-5"
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=512, ge=1)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2048, ge=1)
     base_url: str | None = None
 
     @model_validator(mode="after")
     def stub_has_no_model(self) -> JudgeConfig:
         if self.provider == "stub":
             self.model = "stub"
+            self.temperature = None
         return self
 
 

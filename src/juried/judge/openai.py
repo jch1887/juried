@@ -4,7 +4,6 @@ import os
 from typing import Any
 
 from juried.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
-from juried.transport import request_json
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -18,7 +17,6 @@ class OpenAIProvider(LLMProvider):
         api_key = require_env(dict(os.environ), "OPENAI_API_KEY", self.name)
         body: dict[str, Any] = {
             "model": self.model,
-            "temperature": self.temperature,
             "max_completion_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system},
@@ -29,13 +27,12 @@ class OpenAIProvider(LLMProvider):
                 "json_schema": {"name": "juried_output", "strict": True, "schema": schema},
             },
         }
-        response = await request_json(
-            self.client,
-            "POST",
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
+        response = await self.post_json(
             f"{(self.base_url or DEFAULT_BASE_URL).rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-            body=body,
-            retries=3,
+            {"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
+            body,
         )
         payload = response.json()
         choices = payload.get("choices") or []

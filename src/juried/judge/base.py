@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from juried.criteria import Criterion
 from juried.judge import prompts
 from juried.scenarios import Scenario, ScenarioDraft
+from juried.transport import TransportFailure, request_json
 
 JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -51,6 +52,7 @@ class Verdict:
 class Provider(ABC):
     name: str
     model: str
+    temperature: float | None = None
 
     @abstractmethod
     def fingerprint(self) -> str: ...
@@ -79,7 +81,7 @@ class LLMProvider(Provider):
     def __init__(
         self,
         model: str,
-        temperature: float,
+        temperature: float | None,
         max_tokens: int,
         base_url: str | None = None,
         timeout_seconds: float = 120.0,
@@ -121,6 +123,23 @@ class LLMProvider(Provider):
             },
             sort_keys=True,
         )
+
+    async def post_json(self, url: str, headers: dict[str, str], body: Any) -> httpx.Response:
+        try:
+            return await request_json(
+                self.client, "POST", url, headers=headers, body=body, retries=3
+            )
+        except TransportFailure as exc:
+            if (
+                self.temperature is not None
+                and exc.status_code == 400
+                and "temperature" in str(exc).lower()
+            ):
+                raise ProviderError(
+                    f"{self.model} does not accept temperature; remove temperature from "
+                    f"[judge] in juried.toml to use this model"
+                ) from exc
+            raise
 
     @abstractmethod
     async def complete_json(

@@ -31,7 +31,7 @@ and on demand from the Actions tab, using the repository secrets `ANTHROPIC_API_
 ## Layout
 
 - `src/juried/config.py`, `criteria.py`, `scenarios.py`: models and file parsing.
-- `src/juried/targets/`: the system under test. Stage 1 has an HTTP endpoint target.
+- `src/juried/targets/`: the system under test, currently an HTTP endpoint target.
 - `src/juried/judge/`: providers. `base.py` holds the interface and the shared judge and
   generation logic, `prompts.py` the pinned prompts, `stub.py` a key free provider.
 - `src/juried/runner.py`: repeated runs, concurrency and caching.
@@ -40,9 +40,8 @@ and on demand from the Actions tab, using the repository secrets `ANTHROPIC_API_
 - `src/juried/report/`: JSON and single file HTML output.
 - `src/juried/cli.py`: `init`, `generate`, `calibrate` and `run`.
 
-Extension points for later stages: a new `Target` implementation for UI driving, a new
-`Provider` for other judges, a `turns` field on `Scenario` for multi turn conversations,
-and new scenario kinds for adversarial generation.
+The README's roadmap lists what is not built yet; each item maps to one of the extension
+points above (`Target`, `Provider`, the scenario models, the generation prompt).
 
 ## House rules
 

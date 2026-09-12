@@ -71,6 +71,8 @@ class JudgeConfig(StrictModel):
 class GenerateConfig(StrictModel):
     provider: ProviderName | None = None
     model: str | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    base_url: str | None = None
     scenarios_per_criterion: int = Field(default=4, ge=1)
     max_tokens: int = Field(default=4096, ge=1)
 
@@ -123,6 +125,18 @@ class Config(StrictModel):
     def generate_model(self) -> str:
         return self.generate.model or self.judge.model
 
+    # The judge's temperature is chosen for consistent verdicts; generation wants variety,
+    # so it is not inherited. A base URL is inherited only while the provider is the same.
+    @property
+    def generate_temperature(self) -> float | None:
+        return self.generate.temperature
+
+    @property
+    def generate_base_url(self) -> str | None:
+        if self.generate.base_url is not None:
+            return self.generate.base_url
+        return self.judge.base_url if self.generate_provider == self.judge.provider else None
+
 
 class ConfigError(Exception):
     pass
@@ -138,7 +152,7 @@ def find_config(start: Path | None = None) -> Path | None:
 
 
 def apply_env_overrides(data: dict[str, Any], environ: Mapping[str, str]) -> dict[str, Any]:
-    sections = {name for name, field in Config.model_fields.items() if field.annotation}
+    sections = set(Config.model_fields)
     for name, value in environ.items():
         if not name.startswith(ENV_PREFIX):
             continue

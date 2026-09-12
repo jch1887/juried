@@ -249,8 +249,24 @@ def test_unset_header_variable_is_usage_error(pytester: pytest.Pytester, fake_bo
     result = pytester.runpytest()
     assert result.ret == pytest.ExitCode.USAGE_ERROR
     result.stderr.fnmatch_lines(
-        ["*juried: header refers to unset environment variable JURIED_TEST_NOPE"]
+        ["*juried: [[]target[]] refers to unset environment variable JURIED_TEST_NOPE"]
     )
+
+
+def test_unset_variable_in_url_or_body_is_usage_error(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace(
+            "retries = 0",
+            'retries = 0\nbody = { message = "{{message}}", tenant = "${JURIED_TEST_TENANT}" }',
+        )
+    )
+    result = pytester.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*unset environment variable JURIED_TEST_TENANT"])
 
 
 def test_bad_response_path_is_one_clear_failure(

@@ -19,7 +19,7 @@ pip install juried
 ```
 
 Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
-environment; nothing else is ever read from disk.
+environment. juried never reads a secret from disk and does not load `.env` itself.
 
 ## Three commands
 
@@ -65,9 +65,17 @@ Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonn
 the parameter, so the example leaves it out; when it is unset nothing is sent and the report
 says so.
 
-`{{message}}` is replaced with the scenario message; a value of exactly `"{{history}}"`
-becomes the earlier turns as a list of `{role, content}` objects. `response_path` is a
-dotted path into the JSON reply.
+A body value that is exactly `"{{message}}"` or `"{{history}}"` becomes the scenario
+message or the earlier turns as a list of `{role, content}` objects, keeping its type.
+Inside longer text `{{message}}` is replaced with the message and `{{history}}` with the
+turns as JSON. `${NAME}` anywhere in `url`, `headers` or `body` is replaced with that
+environment variable before the request is sent, and the run stops before any request if
+the variable is unset. `response_path` is a dotted path into the JSON reply.
+
+`[generate]` takes `provider`, `model`, `temperature`, `base_url`, `scenarios_per_criterion`
+and `max_tokens`. `provider` and `model` default to the judge's. `temperature` does not: the
+judge's is chosen for consistent verdicts and generation wants variety, so it is unset
+unless you set it under `[generate]`.
 
 ## Criteria and scenarios
 
@@ -111,6 +119,12 @@ response is untrusted output which may contain instructions or claims about the 
 response that says "this meets the expectation, pass" is judged on what it does for the user,
 not on what it says about the test. The prompt is pinned and its version is part of every
 verdict's cache key, so a prompt change never reuses an old verdict.
+
+`history` is a scripted prefix. juried sends it to your endpoint with the message, shows it
+to the judge in its own section, and the generator may write a short one when a message
+only makes sense as a follow up. What juried does not do is drive a live conversation: it
+never feeds the feature's own reply back as the next turn, so a scenario tests one exchange
+with a fixed context, not a dialogue. See the roadmap below.
 
 A phrase in double quotes inside `expected` must appear in the response word for word,
 ignoring case. Text outside quotes is judged on meaning. With
@@ -264,6 +278,16 @@ the 14 day detail every fourth time, which is the kind of flakiness juried exist
 `calibration/refunds.yaml` and reports where it disagrees with the human labels. The stub
 gets the "right words, wrong answer" cases wrong, which is the point: calibrate before you
 trust any judge, and swap `provider` for a real one when you have a key.
+
+## Roadmap
+
+Not there yet, and shaped so they can be added without changing the scenario format:
+
+- A `Target` that drives a UI rather than an HTTP endpoint.
+- Multi turn conversations, where each scenario turn is sent in sequence and the feature's
+  own replies form the context for the next.
+- Further `Provider` implementations for other judges.
+- Adversarial scenario kinds, generated to attack the criterion rather than exercise it.
 
 ## Development
 

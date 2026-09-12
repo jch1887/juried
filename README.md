@@ -1,6 +1,8 @@
-<img src="juried.png" alt="juried" width="360">
-
-Acceptance testing for LLM features, built for QA teams.
+<p align="center">
+  <img src="juried.png" alt="juried" width="360">
+  <br>
+  Acceptance testing for LLM features, built for QA teams.
+</p>
 
 juried treats your LLM powered feature as a black box behind an HTTP endpoint. You write
 acceptance criteria in plain English, juried generates test scenarios from them, runs each

@@ -223,6 +223,13 @@ gives you:
   shows the number of split verdicts per scenario and the pytest summary flags them
   (`judge split on 2`). Split verdicts mean the expectation is ambiguous or the judge is
   unreliable on it; either way, look at the wording before trusting the number.
+
+  Be clear about what votes measure. Every vote comes from the same model with the same
+  prompt, so agreement measures the judge's stability, not its correctness. A judge that
+  is confidently wrong agrees with itself every time, and a model run at temperature 0 can
+  read 1.0 agreement on every scenario while telling you nothing about whether its
+  verdicts match a human's. Votes catch a judge that wavers; only calibration, below,
+  catches a judge that is wrong.
 - **Calibration against human labels.** Put responses your team has judged by hand under
   `calibration/`, then run `juried calibrate`. It judges each one with the configured
   model and prints every disagreement, the accuracy, and the counts of false passes and

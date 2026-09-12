@@ -10,6 +10,7 @@ from juried import __version__
 from juried.config import Config
 from juried.criteria import Criterion
 from juried.runner import ScenarioResult
+from juried.stats import required_passes
 
 
 def scenario_entry(result: ScenarioResult) -> dict[str, Any]:
@@ -63,7 +64,11 @@ def build_report(
             "model": config.judge.model,
             "temperature": config.judge.temperature,
         },
-        "defaults": {"runs": config.run.runs, "threshold": config.run.threshold},
+        "defaults": {
+            "runs": config.run.runs,
+            "threshold": config.run.threshold,
+            "required_passes": required_passes(config.run.runs, config.run.threshold),
+        },
         "summary": {
             "criteria": len(criteria_entries),
             "scenarios": len(results),

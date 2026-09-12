@@ -49,7 +49,7 @@ response_path = "choices.0.message.content"
 
 [run]
 runs = 10          # attempts per scenario
-threshold = 0.7    # gate on the lower bound of the Wilson 95% interval
+threshold = 0.7    # floor on the lower bound of the Wilson 95% interval, not a pass rate
 concurrency = 4
 
 [judge]
@@ -112,10 +112,33 @@ fails because `14 days` is missing. The stub judge applies the same rule.
 
 Each scenario runs `runs` times. The judge marks each response pass or fail with a one
 line reason, using a fixed prompt and the configured temperature, if any. juried computes the
-pass rate and its
-Wilson 95% interval, and the scenario passes when the lower bound meets `threshold`. With
-10 runs a perfect score gives a lower bound of 0.72, so the default threshold is 0.7; a
-stricter threshold needs more runs, and juried warns when a gate can never pass.
+pass rate and its Wilson 95% interval, and the scenario passes when the lower bound meets
+`threshold`.
+
+**The threshold is not a pass rate.** It is a floor on the lower bound of the confidence
+interval, and with a small number of runs that bound sits well below the observed rate.
+**With the defaults, `runs = 10` and `threshold = 0.7`, a scenario must pass 10 times out
+of 10.** One miss gives 9/10, whose lower bound is 0.60, and the gate fails. A 90% pass
+rate does not pass the default gate. Tolerating misses means running more times:
+
+| runs | threshold | passes needed | misses tolerated |
+|-----:|----------:|--------------:|-----------------:|
+|   10 |       0.7 |            10 |                0 |
+|   20 |       0.7 |            19 |                1 |
+|   30 |       0.7 |            26 |                4 |
+|   50 |       0.7 |            42 |                8 |
+|  100 |       0.7 |            79 |               21 |
+|   10 |       0.5 |             9 |                1 |
+|   20 |       0.8 |            20 |                0 |
+|   50 |       0.8 |            46 |                4 |
+|   10 |       0.9 |  never passes |                  |
+
+juried prints what the gate needs at the top of every run
+(`juried: gate needs 10/10 passes at threshold 0.70 (no misses tolerated)`), repeats it in
+every gate failure, shows it under the threshold in the report, and warns when a gate can
+never pass, as with 10 runs at 0.9 where even a perfect score has a lower bound of 0.72.
+Decide on the number of misses you are willing to accept, then pick `runs` from the table;
+raising `threshold` alone only makes the gate stricter.
 
 A failing gate is a normal pytest failure that shows the pass rate, the interval, the
 threshold and the first failing transcript with the judge's reason. An HTTP error from

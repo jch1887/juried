@@ -1,6 +1,12 @@
 import pytest
 
-from juried.stats import best_possible_lower_bound, gate_passes, wilson_interval
+from juried.stats import (
+    best_possible_lower_bound,
+    describe_gate,
+    gate_passes,
+    required_passes,
+    wilson_interval,
+)
 
 
 @pytest.mark.parametrize(
@@ -49,3 +55,30 @@ def test_gate_uses_lower_bound() -> None:
 def test_best_possible_lower_bound_grows_with_runs() -> None:
     assert best_possible_lower_bound(10) == pytest.approx(0.7225, abs=1e-4)
     assert best_possible_lower_bound(30) > best_possible_lower_bound(10)
+
+
+@pytest.mark.parametrize(
+    ("runs", "threshold", "needed"),
+    [(10, 0.7, 10), (20, 0.7, 19), (30, 0.7, 26), (50, 0.7, 42), (10, 0.5, 9), (10, 0.9, None)],
+)
+def test_required_passes_matches_documented_table(
+    runs: int, threshold: float, needed: int | None
+) -> None:
+    assert required_passes(runs, threshold) == needed
+    assert required_passes(0, 0.5) is None
+
+
+@pytest.mark.parametrize(
+    ("runs", "threshold", "text"),
+    [
+        (10, 0.7, "gate needs 10/10 passes at threshold 0.70 (no misses tolerated)"),
+        (20, 0.7, "gate needs 19/20 passes at threshold 0.70 (1 miss tolerated)"),
+        (50, 0.7, "gate needs 42/50 passes at threshold 0.70 (8 misses tolerated)"),
+    ],
+)
+def test_describe_gate_states_the_real_requirement(runs: int, threshold: float, text: str) -> None:
+    assert describe_gate(runs, threshold) == text
+
+
+def test_describe_gate_flags_unattainable_gate() -> None:
+    assert describe_gate(10, 0.9).startswith("with 10 runs the best possible lower bound is 0.72")

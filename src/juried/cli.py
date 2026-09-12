@@ -37,8 +37,11 @@ scenarios_dir = "scenarios"
 
 [run]
 # Each scenario runs this many times. Its gate passes when the lower bound of the
-# Wilson 95% interval on the pass rate meets the threshold. With 10 runs the best
-# possible lower bound is 0.72, so a higher threshold needs more runs.
+# Wilson 95% interval on the pass rate meets the threshold. The threshold is not a
+# pass rate: with runs = 10 and threshold = 0.7 all 10 runs must pass, since 9/10
+# has a lower bound of 0.60. 20 runs tolerate 1 miss, 50 runs tolerate 8. With 10
+# runs the best possible lower bound is 0.72, so a higher threshold needs more runs.
+# juried prints what the gate needs at the start of every run.
 runs = 10
 threshold = 0.7
 concurrency = 4

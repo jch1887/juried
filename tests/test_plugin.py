@@ -61,6 +61,7 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     result.stdout.re_match_lines(
         [
             r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, cache on",
+            r"juried: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\)",
             r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(lower 0.00 < 0.50\).*",
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
@@ -68,6 +69,9 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"\s+runs upheld: 0/4 = 0.00",
             r"\s+lower bound: 0.00 \(Wilson 95% interval 0.00 to 0.49\)",
             r"\s+threshold: 0.50, gate upheld when the lower bound meets it",
+            r"\s+transport errors: 0",
+            r"\s+note: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\); "
+            r"4 of 4 runs had to pass and 0 did",
             r"\s+first failing run: attempt 1 \(failed\)",
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
@@ -138,6 +142,7 @@ def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: s
     write_project(pytester, fake_bot_url)
     result = pytester.runpytest("--juried-threshold=0.9", "-k", "hours")
     result.assert_outcomes(failed=1)
+    assert "gate needs" not in result.stdout.str()
     result.stdout.fnmatch_lines(
         [
             "juried: warning: with 4 runs the best possible lower bound is 0.51, below the "

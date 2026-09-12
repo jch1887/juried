@@ -28,6 +28,9 @@ dev = [
 [project.scripts]
 vouch = "vouch.cli:main"
 
+[project.entry-points.pytest11]
+vouch = "vouch.pytest_plugin"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/vouch"]
 

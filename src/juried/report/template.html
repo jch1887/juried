@@ -41,7 +41,7 @@
 <p class="meta">
   Generated {{ report.generated_at }} by juried {{ report.version }}.
   Judge: {{ report.judge.provider }} / <code>{{ report.judge.model }}</code> ({% if report.judge.temperature is none %}temperature not set{% else %}temperature {{ report.judge.temperature }}{% endif %}).
-  Defaults: {{ report.defaults.runs }} runs per scenario, gate at {{ report.defaults.threshold }} on the lower bound of the Wilson 95% interval.
+  Defaults: {{ report.defaults.runs }} runs per scenario, gate at {{ report.defaults.threshold }} on the lower bound of the Wilson 95% interval{% if report.defaults.required_passes is not none %}, which needs {{ report.defaults.required_passes }} of {{ report.defaults.runs }} runs to pass{% endif %}.
 </p>
 
 <div class="summary">
@@ -86,7 +86,7 @@
       <td class="num">{{ scenario.passes }} / {{ scenario.runs }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}</td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num bound">{{ scenario.interval.lower | percent }}</td>
-      <td class="num">{{ scenario.threshold | percent }}</td>
+      <td class="num">{{ scenario.threshold | percent }}<br><span class="meta">{% if scenario.required_passes is none %}unattainable{% else %}needs {{ scenario.required_passes }} / {{ scenario.runs }}{% endif %}</span></td>
       <td class="num">{{ scenario.interval.upper | percent }}</td>
       <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">cached</span>{% endif %}</td>
       <td class="{{ 'upheld' if scenario.gate_passed else 'failed' }}">{{ 'upheld' if scenario.gate_passed else 'failed' }}</td>
@@ -94,7 +94,7 @@
   {% endfor %}
   </tbody>
 </table>
-<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold.</p>
+<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold. The threshold is not a pass rate: the "needs" figure under it is the number of runs that must pass.</p>
 
 {% for scenario in criterion.scenarios %}
 <h3 id="{{ scenario.id }}">{{ scenario.name }} <span class="meta">({{ scenario.id }})</span> <span class="{{ 'upheld' if scenario.gate_passed else 'failed' }}">{{ 'upheld' if scenario.gate_passed else 'failed' }}</span></h3>

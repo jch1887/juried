@@ -31,3 +31,26 @@ def best_possible_lower_bound(runs: int) -> float:
 
 def gate_passes(passes: int, runs: int, threshold: float) -> bool:
     return runs > 0 and wilson_interval(passes, runs).lower >= threshold
+
+
+def required_passes(runs: int, threshold: float) -> int | None:
+    for passes in range(runs + 1):
+        if gate_passes(passes, runs, threshold):
+            return passes
+    return None
+
+
+def describe_gate(runs: int, threshold: float) -> str:
+    needed = required_passes(runs, threshold)
+    if needed is None:
+        return (
+            f"with {runs} runs the best possible lower bound is "
+            f"{best_possible_lower_bound(runs):.2f}, below the threshold {threshold:.2f}, "
+            "so the gate can never be upheld. Raise runs or lower the threshold."
+        )
+    misses = runs - needed
+    if misses == 0:
+        tolerated = "no misses tolerated"
+    else:
+        tolerated = f"{misses} miss{'es' if misses != 1 else ''} tolerated"
+    return f"gate needs {needed}/{runs} passes at threshold {threshold:.2f} ({tolerated})"

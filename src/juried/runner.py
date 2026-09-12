@@ -13,7 +13,7 @@ from juried.config import Config
 from juried.criteria import Criterion
 from juried.judge.base import Provider, Verdict
 from juried.scenarios import Scenario
-from juried.stats import Interval, wilson_interval
+from juried.stats import Interval, required_passes, wilson_interval
 from juried.targets.base import Target
 from juried.targets.http import HttpTarget
 from juried.transport import TransportFailure
@@ -112,6 +112,10 @@ class ScenarioResult:
         return self.total > 0 and self.interval.lower >= self.threshold
 
     @property
+    def required_passes(self) -> int | None:
+        return required_passes(self.total, self.threshold)
+
+    @property
     def failures(self) -> list[RunRecord]:
         return [run for run in self.runs if not run.passed]
 
@@ -140,6 +144,7 @@ class ScenarioResult:
             "pass_rate": round(self.pass_rate, 4),
             "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
             "threshold": self.threshold,
+            "required_passes": self.required_passes,
             "gate_passed": self.gate_passed,
             "latency": self.latency.to_dict(),
             "attempts": [run.to_dict() for run in self.runs],

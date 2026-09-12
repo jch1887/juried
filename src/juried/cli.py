@@ -19,6 +19,7 @@ from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, loa
 from juried.criteria import CriteriaError, load_criteria
 from juried.generate import generate_scenarios
 from juried.judge import ProviderError, build_provider
+from juried.pricing import describe_usage
 from juried.scenarios import ScenarioError
 from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
@@ -74,6 +75,10 @@ model = "claude-sonnet-5"
 # Each response is judged once. Set an odd number above 1 to judge it that many times and
 # take the majority; the report then shows how often the votes split.
 votes = 1
+# Every run reports the judge's token usage and an estimated spend from a dated table of
+# list prices. Set both to override the table, in US dollars per million tokens.
+# input_price = 2.0
+# output_price = 10.0
 # Judge requests in flight across all scenarios, independent of the target cap above.
 concurrency = 4
 
@@ -204,6 +209,7 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
     for path in outcome.written:
         criterion_id = path.stem
         print(f"wrote {path} ({outcome.counts[criterion_id]} scenarios)")
+    print("usage: " + describe_usage(provider.usage_total, provider.model, config.generate_prices))
     if outcome.written:
         print("review and edit the generated files, then commit them and run 'juried run'")
     return 0
@@ -237,6 +243,7 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     )
     if judge.votes > 1:
         print(f"judge votes were unanimous on {result.unanimous}/{result.total}")
+    print(f"usage: {describe_usage(provider.usage_total, provider.model, judge.prices)}")
     path = write_calibration_report(result, config.report_path)
     print(f"calibration: {path}")
     if min_accuracy is not None and result.accuracy < min_accuracy:

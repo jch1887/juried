@@ -10,7 +10,7 @@ import pytest
 from juried.cache import Cache
 from juried.config import parse_config
 from juried.criteria import Criterion
-from juried.judge import Provider, ProviderError, StubProvider, Verdict
+from juried.judge import Provider, ProviderError, StubProvider, Usage, Verdict
 from juried.runner import Runner, ScenarioResult, Session
 from juried.scenarios import Scenario, Turn
 from juried.targets.base import TargetResponse
@@ -394,6 +394,37 @@ def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
     )
     assert result.transport_errors == 2
     assert not result.gate_passed
+
+
+class MeteredStub(StubProvider):
+    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+        verdict = await super().judge(criterion, scenario, response_text)
+        return Verdict(
+            verdict.passed, verdict.reason, verdict.model, verdict.judged_at, Usage(100, 7, 1)
+        )
+
+
+def test_usage_is_summed_over_fresh_votes_only(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am.", "Open 9am!"])
+    runner = make_runner(tmp_path, target, runs=2, votes=3, provider=MeteredStub())
+    result = runner.run(scenario(), CRITERION)
+    assert [run.usage for run in result.runs] == [Usage(300, 21, 3), Usage(300, 21, 3)]
+    assert result.usage == Usage(600, 42, 6)
+    assert result.to_dict()["usage"] == {"input_tokens": 600, "output_tokens": 42, "calls": 6}
+    assert result.to_dict()["attempts"][0]["usage"]["calls"] == 3
+
+    single = make_runner(
+        tmp_path / "single",
+        ScriptedTarget(["Open 9am."]),
+        runs=2,
+        concurrency=1,
+        provider=MeteredStub(),
+    )
+    first = single.run(scenario(), CRITERION)
+    assert first.usage == Usage(100, 7, 1)  # second attempt's verdict came from the cache
+    again = single.run(scenario(), CRITERION)
+    assert again.usage == Usage()
+    assert all(run.verdict_cached for run in again.runs)
 
 
 def test_single_vote_records_full_agreement(tmp_path: Path) -> None:

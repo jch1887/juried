@@ -243,6 +243,27 @@ Label at least a handful of cases per criterion, including borderline responses 
 that contain the right words for the wrong reason. Rerun `calibrate` whenever the judge
 model, temperature or prompt changes.
 
+## What a run costs
+
+The first question a team asks is what this costs, so every run answers it. Each provider
+response carries its token counts; juried records them on every verdict, sums them per
+attempt, per scenario and per run, and prints the total at the end:
+
+```
+judge usage: 41,220 input + 2,860 output tokens over 130 call(s), estimated $0.11 at list prices of 2026-09
+```
+
+The same figures sit in the JSON report, under `summary.usage` and each scenario's `usage`,
+and in a tile at the top of the HTML report. `juried generate` and `juried calibrate` print
+their own usage line. Cached verdicts cost nothing and are not counted.
+
+The estimate multiplies tokens by a built in table of list prices, dated in the output,
+which covers the current Anthropic and OpenAI models. It is an estimate: cache reads are
+priced as ordinary input, the table lags price changes, and your account may have its own
+rates. Set `input_price` and `output_price` under `[judge]`, in US dollars per million
+tokens, to use your own figures; for a model not in the table the run reports the tokens
+and says the price is unknown until you set them.
+
 ## The report
 
 After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.

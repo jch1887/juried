@@ -9,12 +9,18 @@ from typing import Any
 from juried import __version__
 from juried.config import Config
 from juried.criteria import Criterion
+from juried.pricing import Usage, estimate_usd, prices_for
 from juried.runner import ScenarioResult
 from juried.stats import required_passes
 
 
-def scenario_entry(result: ScenarioResult) -> dict[str, Any]:
+def usage_entry(usage: Usage, prices: tuple[float, float] | None) -> dict[str, Any]:
+    return {**usage.to_dict(), "estimated_cost_usd": estimate_usd(usage, prices)}
+
+
+def scenario_entry(result: ScenarioResult, prices: tuple[float, float] | None) -> dict[str, Any]:
     entry = result.to_dict()
+    entry["usage"] = usage_entry(result.usage, prices)
     entry["failures"] = [
         {
             "attempt": run.attempt,
@@ -41,10 +47,11 @@ def build_report(
     for result in results:
         known.setdefault(result.criterion.id, result.criterion)
 
+    prices = prices_for(config.judge.model, config.judge.prices)
     criteria_entries = []
     for criterion_id, group in by_criterion.items():
         criterion = known[criterion_id]
-        scenarios = [scenario_entry(result) for result in group]
+        scenarios = [scenario_entry(result, prices) for result in group]
         criteria_entries.append(
             {
                 "id": criterion.id,
@@ -68,6 +75,7 @@ def build_report(
             "model": config.judge.model,
             "temperature": config.judge.temperature,
             "votes": config.judge.votes,
+            "prices_usd_per_million": None if prices is None else list(prices),
         },
         "defaults": {
             "runs": config.run.runs,
@@ -84,6 +92,7 @@ def build_report(
             "responses_from_cache": sum(r.responses_from_cache for r in results),
             "split_verdicts": sum(r.split_verdicts for r in results),
             "judge_errors": sum(r.judge_errors for r in results),
+            "usage": usage_entry(sum((r.usage for r in results), Usage()), prices),
             "criteria_without_scenarios": [
                 entry["id"] for entry in criteria_entries if not entry["scenarios"]
             ],

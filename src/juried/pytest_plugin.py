@@ -12,6 +12,7 @@ from juried.cache import Cache
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
 from juried.judge import ProviderError, build_provider
+from juried.pricing import Usage, describe_usage
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult, Session
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
@@ -375,6 +376,11 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         f"{len(state.results)} scenarios, {passed} upheld, "
         f"{len(state.results) - passed - incomplete} failed, {incomplete} incomplete, "
         f"{transport} transport errors, {judge} judge errors"
+    )
+    usage = sum((result.usage for result in state.results), Usage())
+    judge_config = state.config.judge
+    terminalreporter.write_line(
+        f"judge usage: {describe_usage(usage, judge_config.model, judge_config.prices)}"
     )
     replayed = sum(result.responses_from_cache for result in state.results)
     if replayed:

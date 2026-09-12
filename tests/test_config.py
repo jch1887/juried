@@ -105,6 +105,20 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_prices_are_optional_but_paired(tmp_path: Path) -> None:
+    assert parse_config(MINIMAL, tmp_path, environ={}).judge.prices is None
+    paired = parse_config(MINIMAL + "[judge]\ninput_price = 2\noutput_price = 10\n", tmp_path)
+    assert paired.judge.prices == (2.0, 10.0)
+    assert paired.generate_prices == (2.0, 10.0)
+    other = parse_config(
+        MINIMAL + '[judge]\ninput_price = 2\noutput_price = 10\n[generate]\nmodel = "x"\n',
+        tmp_path,
+    )
+    assert other.generate_prices is None
+    with pytest.raises(ConfigError, match="set together"):
+        parse_config(MINIMAL + "[judge]\ninput_price = 2\n", tmp_path, environ={})
+
+
 def test_votes_must_be_odd(tmp_path: Path) -> None:
     assert parse_config(MINIMAL + "[judge]\nvotes = 3\n", tmp_path, environ={}).judge.votes == 3
     with pytest.raises(ConfigError, match="odd"):

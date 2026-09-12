@@ -3,7 +3,14 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from juried.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
+from juried.judge.base import (
+    LLMProvider,
+    ProviderError,
+    parse_json_object,
+    require_env,
+    usage_from,
+)
+from juried.pricing import Usage
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 API_VERSION = "2023-06-01"
@@ -14,7 +21,7 @@ class AnthropicProvider(LLMProvider):
 
     async def complete_json(
         self, system: str, user: str, schema: dict[str, Any], max_tokens: int
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], Usage]:
         api_key = require_env(dict(os.environ), "ANTHROPIC_API_KEY", self.name)
         body: dict[str, Any] = {
             "model": self.model,
@@ -35,6 +42,13 @@ class AnthropicProvider(LLMProvider):
             body,
         )
         payload = response.json()
+        # Cache reads and writes are billed at different rates, but both are input tokens
+        # for the estimate, which errs on the side of overstating the spend.
+        usage = usage_from(
+            payload,
+            ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"),
+            "output_tokens",
+        )
         if payload.get("stop_reason") == "refusal":
             raise ProviderError(f"{self.model} refused the request: {payload.get('stop_details')}")
         if payload.get("stop_reason") == "max_tokens":
@@ -47,4 +61,4 @@ class AnthropicProvider(LLMProvider):
             for block in payload.get("content", [])
             if block.get("type") == "text"
         )
-        return parse_json_object(text)
+        return parse_json_object(text), usage

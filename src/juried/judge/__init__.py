@@ -10,6 +10,7 @@ from juried.judge.base import (
 )
 from juried.judge.openai import OpenAIProvider
 from juried.judge.stub import StubProvider
+from juried.pricing import Usage
 
 
 def build_provider(
@@ -35,6 +36,7 @@ __all__ = [
     "Provider",
     "ProviderError",
     "StubProvider",
+    "Usage",
     "Verdict",
     "agreement",
     "build_provider",

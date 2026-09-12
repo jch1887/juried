@@ -57,6 +57,7 @@ def test_generate_then_run(
     assert main(["generate"]) == 0
     out = capsys.readouterr().out
     assert "generating scenarios with stub/stub" in out
+    assert "usage: 0 input + 0 output tokens over 0 call(s), estimated $0.0000" in out
     assert "opening-hours.yaml (2 scenarios)" in out
     assert main(["generate"]) == 0
     assert "kept existing" in capsys.readouterr().out

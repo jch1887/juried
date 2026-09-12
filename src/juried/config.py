@@ -53,6 +53,20 @@ class JudgeConfig(StrictModel):
     base_url: str | None = None
     votes: int = Field(default=1, ge=1)
     concurrency: int = Field(default=4, ge=1)
+    input_price: float | None = Field(default=None, ge=0.0)
+    output_price: float | None = Field(default=None, ge=0.0)
+
+    @property
+    def prices(self) -> tuple[float, float] | None:
+        if self.input_price is None or self.output_price is None:
+            return None
+        return (self.input_price, self.output_price)
+
+    @model_validator(mode="after")
+    def prices_come_in_pairs(self) -> JudgeConfig:
+        if (self.input_price is None) != (self.output_price is None):
+            raise ValueError("judge.input_price and judge.output_price must be set together")
+        return self
 
     @model_validator(mode="after")
     def stub_has_no_model(self) -> JudgeConfig:
@@ -130,6 +144,10 @@ class Config(StrictModel):
     @property
     def generate_temperature(self) -> float | None:
         return self.generate.temperature
+
+    @property
+    def generate_prices(self) -> tuple[float, float] | None:
+        return self.judge.prices if self.generate_model == self.judge.model else None
 
     @property
     def generate_base_url(self) -> str | None:

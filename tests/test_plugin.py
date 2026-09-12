@@ -81,6 +81,8 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"\s+response: I'm not sure about that, please contact support.",
             r"\s+judge \(stub\): response does not mention '14 days'",
             r"2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
+            r"judge usage: 0 input \+ 0 output tokens over 0 call\(s\), estimated \$0.0000 at "
+            r"list prices of 20",
             r"report: .*juried-report.html",
         ]
     )

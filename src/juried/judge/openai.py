@@ -3,7 +3,14 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from juried.judge.base import LLMProvider, ProviderError, parse_json_object, require_env
+from juried.judge.base import (
+    LLMProvider,
+    ProviderError,
+    parse_json_object,
+    require_env,
+    usage_from,
+)
+from juried.pricing import Usage
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -13,7 +20,7 @@ class OpenAIProvider(LLMProvider):
 
     async def complete_json(
         self, system: str, user: str, schema: dict[str, Any], max_tokens: int
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], Usage]:
         api_key = require_env(dict(os.environ), "OPENAI_API_KEY", self.name)
         body: dict[str, Any] = {
             "model": self.model,
@@ -35,10 +42,11 @@ class OpenAIProvider(LLMProvider):
             body,
         )
         payload = response.json()
+        usage = usage_from(payload, ("prompt_tokens",), "completion_tokens")
         choices = payload.get("choices") or []
         if not choices:
             raise ProviderError(f"{self.model} returned no choices: {payload!r}")
         message = choices[0].get("message", {})
         if message.get("refusal"):
             raise ProviderError(f"{self.model} refused the request: {message['refusal']}")
-        return parse_json_object(str(message.get("content", "")))
+        return parse_json_object(str(message.get("content", ""))), usage

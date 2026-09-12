@@ -15,6 +15,7 @@ from juried.cache import Cache
 from juried.config import Config
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
+from juried.pricing import Usage
 from juried.scenarios import Scenario
 from juried.stats import Interval, required_passes, wilson_interval
 from juried.targets.base import Target
@@ -32,6 +33,7 @@ class RunRecord:
     judge_error: str | None = None
     verdict: Verdict | None = None
     votes: list[Verdict] = field(default_factory=list)
+    fresh_votes: list[Usage] = field(default_factory=list)
     response_cached: bool = False
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
@@ -50,6 +52,11 @@ class RunRecord:
     @property
     def errored(self) -> bool:
         return self.error is not None or self.judge_error is not None
+
+    @property
+    def usage(self) -> Usage:
+        # Cached votes cost nothing this run, so only fresh votes count.
+        return sum(self.fresh_votes, Usage())
 
     @property
     def outcome(self) -> str:
@@ -81,6 +88,7 @@ class RunRecord:
             "verdict": self.verdict.to_dict() if self.verdict else None,
             "votes": [vote.to_dict() for vote in self.votes],
             "agreement": self.agreement,
+            "usage": self.usage.to_dict(),
             "response_cached": self.response_cached,
             "verdict_cached": self.verdict_cached,
             "elapsed_ms": round(self.elapsed_ms, 1),
@@ -175,6 +183,10 @@ class ScenarioResult:
         return [run for run in self.runs if not run.passed]
 
     @property
+    def usage(self) -> Usage:
+        return sum((run.usage for run in self.runs), Usage())
+
+    @property
     def judge_agreement(self) -> float | None:
         judged = [run.agreement for run in self.runs if run.agreement is not None]
         return sum(judged) / len(judged) if judged else None
@@ -217,6 +229,7 @@ class ScenarioResult:
             "status": self.status,
             "judge_agreement": self.judge_agreement,
             "split_verdicts": self.split_verdicts,
+            "usage": self.usage.to_dict(),
             "latency": self.latency.to_dict(),
             "attempts": [run.to_dict() for run in self.runs],
         }
@@ -339,6 +352,7 @@ class Runner:
             record.elapsed_ms = (time.perf_counter() - started) * 1000
             return record
         record.votes = [verdict for verdict, _ in votes]
+        record.fresh_votes = [verdict.usage for verdict, cached in votes if not cached]
         record.verdict = majority_verdict(record.votes)
         record.verdict_cached = all(cached for _, cached in votes)
         record.elapsed_ms = (time.perf_counter() - started) * 1000

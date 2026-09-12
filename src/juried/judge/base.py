@@ -4,7 +4,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any, Self
@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from juried.criteria import Criterion
 from juried.judge import prompts
+from juried.pricing import Usage
 from juried.scenarios import Scenario, ScenarioDraft
 from juried.transport import TransportFailure, request_json
 
@@ -30,6 +31,7 @@ class Verdict:
     reason: str
     model: str
     judged_at: str
+    usage: Usage = field(default_factory=Usage)
 
     @staticmethod
     def now() -> str:
@@ -41,12 +43,17 @@ class Verdict:
             "reason": self.reason,
             "model": self.model,
             "judged_at": self.judged_at,
+            "usage": self.usage.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Verdict:
         return cls(
-            bool(data["passed"]), str(data["reason"]), str(data["model"]), str(data["judged_at"])
+            bool(data["passed"]),
+            str(data["reason"]),
+            str(data["model"]),
+            str(data["judged_at"]),
+            Usage.from_dict(data.get("usage")),
         )
 
 
@@ -66,6 +73,12 @@ class Provider(ABC):
     name: str
     model: str
     temperature: float | None = None
+    # Every token the provider has spent in this process, cached verdicts excluded.
+    usage_total: Usage = Usage()
+
+    def spend(self, usage: Usage) -> Usage:
+        self.usage_total = self.usage_total + usage
+        return usage
 
     @abstractmethod
     def fingerprint(self) -> str: ...
@@ -157,10 +170,10 @@ class LLMProvider(Provider):
     @abstractmethod
     async def complete_json(
         self, system: str, user: str, schema: dict[str, Any], max_tokens: int
-    ) -> dict[str, Any]: ...
+    ) -> tuple[dict[str, Any], Usage]: ...
 
     async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
-        data = await self.complete_json(
+        data, usage = await self.complete_json(
             prompts.JUDGE_SYSTEM,
             prompts.judge_user_prompt(criterion, scenario, response_text),
             prompts.JUDGE_SCHEMA,
@@ -169,15 +182,16 @@ class LLMProvider(Provider):
         if not isinstance(data.get("pass"), bool):
             raise ProviderError(f"judge returned no boolean 'pass' field: {data!r}")
         reason = str(data.get("reason", "")).strip() or "no reason given"
-        return Verdict(data["pass"], reason, self.model, Verdict.now())
+        return Verdict(data["pass"], reason, self.model, Verdict.now(), self.spend(usage))
 
     async def generate(self, criterion: Criterion, count: int) -> list[ScenarioDraft]:
-        data = await self.complete_json(
+        data, usage = await self.complete_json(
             prompts.GENERATE_SYSTEM,
             prompts.generate_user_prompt(criterion, count),
             prompts.GENERATE_SCHEMA,
             max(self.max_tokens, 4096),
         )
+        self.spend(usage)
         entries = data.get("scenarios")
         if not isinstance(entries, list):
             raise ProviderError(f"generator returned no 'scenarios' list: {data!r}")
@@ -185,6 +199,14 @@ class LLMProvider(Provider):
             return [ScenarioDraft.model_validate(entry) for entry in entries]
         except ValidationError as exc:
             raise ProviderError(f"generator returned an invalid scenario:\n{exc}") from exc
+
+
+def usage_from(payload: dict[str, Any], input_keys: Sequence[str], output_key: str) -> Usage:
+    usage = payload.get("usage") or {}
+    if not isinstance(usage, dict):
+        return Usage(0, 0, 1)
+    input_tokens = sum(int(usage.get(key) or 0) for key in input_keys)
+    return Usage(input_tokens, int(usage.get(output_key) or 0), 1)
 
 
 def parse_json_object(text: str) -> dict[str, Any]:

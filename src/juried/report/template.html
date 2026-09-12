@@ -59,7 +59,11 @@
   {% if report.judge.votes > 1 %}
   <div><strong class="{{ 'warn' if report.summary.split_verdicts else '' }}">{{ report.summary.split_verdicts }}</strong>split verdicts</div>
   {% endif %}
+  <div><strong>{% if report.summary.usage.estimated_cost_usd is none %}?{% else %}${{ '%.4f' | format(report.summary.usage.estimated_cost_usd) }}{% endif %}</strong>judge spend<br><span class="meta">{{ report.summary.usage.input_tokens }} in / {{ report.summary.usage.output_tokens }} out, {{ report.summary.usage.calls }} calls</span></div>
 </div>
+{% if report.summary.usage.estimated_cost_usd is none and report.summary.usage.calls %}
+<p class="warn">No list price is known for <code>{{ report.judge.model }}</code>. Set <code>input_price</code> and <code>output_price</code> under <code>[judge]</code> (US dollars per million tokens) to estimate the spend.</p>
+{% endif %}
 
 {% if report.summary.responses_from_cache %}
 <p class="failed">{{ report.summary.responses_from_cache }} of the responses in this report were replayed from the cache rather than sampled from the feature, so their pass rates say nothing about how the feature behaves now. Run without <code>--cache-responses</code> to sample again.</p>

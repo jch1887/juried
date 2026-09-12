@@ -75,6 +75,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "model": "stub",
         "temperature": None,
         "votes": 1,
+        "prices_usd_per_million": [0.0, 0.0],
     }
     assert report["summary"] == {
         "criteria": 3,
@@ -86,8 +87,10 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "responses_from_cache": 0,
         "split_verdicts": 0,
         "judge_errors": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "calls": 0, "estimated_cost_usd": 0.0},
         "criteria_without_scenarios": ["tone"],
     }
+    assert report["criteria"][0]["scenarios"][0]["usage"]["estimated_cost_usd"] == 0.0
     assert [c["id"] for c in report["criteria"]] == ["hours", "refunds", "tone"]
     hours = report["criteria"][0]
     assert hours["gates_passed"] == 1
@@ -153,6 +156,9 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "judge errors" in html
     assert "gates upheld" in html
     assert "temperature not set, one verdict per response" in html
+    assert "judge spend" in html
+    assert "$0.0000" in html
+    assert "No list price is known" not in html
     assert "split verdicts" not in html
     assert '<th class="num">Lower bound</th>' in html
     assert '<td class="num bound">44%</td>' in html

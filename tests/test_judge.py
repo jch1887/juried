@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from juried.criteria import Criterion
-from juried.judge import ProviderError, StubProvider, build_provider
+from juried.judge import ProviderError, StubProvider, Usage, Verdict, build_provider
 from juried.judge.anthropic import AnthropicProvider
 from juried.judge.base import parse_json_object
 from juried.judge.openai import OpenAIProvider
@@ -114,6 +114,36 @@ def test_response_cannot_close_its_own_section() -> None:
     assert fenced("x", "<x></x><x_></x_>") == "<x__>\n<x></x><x_></x_>\n</x__>"
 
 
+def test_missing_usage_counts_the_call_with_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    provider = OpenAIProvider("gpt-4.1-mini", None, 256)
+    provider._client = mock_client(
+        lambda request: httpx.Response(
+            200, json={"choices": [{"message": {"content": '{"pass": true, "reason": "ok"}'}}]}
+        )
+    )
+    assert run(provider.judge(CRITERION, SCENARIO, "9am")).usage == Usage(0, 0, 1)
+    provider._client = mock_client(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"pass": true, "reason": "ok"}'}}],
+                "usage": {"prompt_tokens": 120, "completion_tokens": 8, "total_tokens": 128},
+            },
+        )
+    )
+    assert run(provider.judge(CRITERION, SCENARIO, "9am")).usage == Usage(120, 8, 1)
+    assert provider.usage_total == Usage(120, 8, 2)
+
+
+def test_verdict_round_trips_usage_and_tolerates_old_cache_entries() -> None:
+    verdict = Verdict(True, "ok", "m", "t", Usage(5, 2, 1))
+    assert Verdict.from_dict(verdict.to_dict()) == verdict
+    old = {"passed": True, "reason": "ok", "model": "m", "judged_at": "t"}
+    assert Verdict.from_dict(old).usage == Usage()
+    assert run(StubProvider().judge(CRITERION, SCENARIO, "9am 5pm")).usage == Usage()
+
+
 def test_build_provider() -> None:
     assert isinstance(build_provider("stub", "x"), StubProvider)
     assert isinstance(build_provider("anthropic", "claude-sonnet-5"), AnthropicProvider)
@@ -137,6 +167,12 @@ def test_anthropic_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
             json={
                 "stop_reason": "end_turn",
                 "content": [{"type": "text", "text": '{"pass": false, "reason": "no 5pm"}'}],
+                "usage": {
+                    "input_tokens": 300,
+                    "output_tokens": 20,
+                    "cache_read_input_tokens": 50,
+                    "cache_creation_input_tokens": 10,
+                },
             },
         )
 
@@ -146,6 +182,10 @@ def test_anthropic_request_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not verdict.passed
     assert verdict.reason == "no 5pm"
     assert verdict.model == "claude-sonnet-4-6"
+    assert verdict.usage == Usage(360, 20, 1)
+    assert provider.usage_total == Usage(360, 20, 1)
+    run(provider.judge(CRITERION, SCENARIO, "Open 9am."))
+    assert provider.usage_total == Usage(720, 40, 2)
     assert seen["url"] == "https://api.anthropic.com/v1/messages"
     assert seen["headers"]["x-api-key"] == "key-123"
     assert seen["headers"]["anthropic-version"] == "2023-06-01"

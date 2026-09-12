@@ -16,6 +16,7 @@ def test_defaults(tmp_path: Path) -> None:
     assert config.run.threshold == 0.7
     assert config.run.concurrency == 4
     assert config.run.cache_responses is False
+    assert config.judge.concurrency == 4
     assert config.judge.provider == "anthropic"
     assert config.judge.temperature is None
     assert config.judge.votes == 1

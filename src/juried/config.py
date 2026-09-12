@@ -52,6 +52,7 @@ class JudgeConfig(StrictModel):
     max_tokens: int = Field(default=2048, ge=1)
     base_url: str | None = None
     votes: int = Field(default=1, ge=1)
+    concurrency: int = Field(default=4, ge=1)
 
     @model_validator(mode="after")
     def stub_has_no_model(self) -> JudgeConfig:

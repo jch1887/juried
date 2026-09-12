@@ -3,8 +3,35 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
+
+
+@contextmanager
+def locked(handle: IO[str]) -> Iterator[None]:
+    # Several pytest-xdist workers append to the same log, so each line is written under an
+    # exclusive lock rather than trusting O_APPEND to keep long lines whole.
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    else:
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 class Cache:
@@ -44,5 +71,7 @@ class Cache:
     def append_log(self, name: str, record: dict[str, Any]) -> None:
         path = self.root / f"{name}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        with path.open("a", encoding="utf-8") as handle, locked(handle):
+            handle.write(line)
+            handle.flush()

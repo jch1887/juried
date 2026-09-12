@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
@@ -12,7 +13,7 @@ from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
 from juried.judge import ProviderError, build_provider
 from juried.report import ReportPaths, write_reports
-from juried.runner import Runner, RunRecord, ScenarioResult
+from juried.runner import Runner, RunRecord, ScenarioResult, Session
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
 from juried.stats import best_possible_lower_bound, describe_gate, required_passes
 from juried.targets.http import TargetConfigError, expand_env
@@ -30,6 +31,7 @@ class JuriedState:
         self.cache = Cache(config.cache_path, enabled=cache_enabled)
         self.results: list[ScenarioResult] = []
         self.report_paths: ReportPaths | None = None
+        self.session: Session | None = None
         self._runner: Runner | None = None
 
     @property
@@ -114,7 +116,8 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     lines = [
         f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
         f"{state.config.judge.model}{votes}, runs {run.runs}, threshold {run.threshold}, "
-        f"cache {cache_mode(state)}"
+        f"cache {cache_mode(state)}, concurrency {run.concurrency} "
+        f"target / {state.config.judge.concurrency} judge"
     ]
     if state.cache.enabled and state.config.run.cache_responses:
         lines.append(
@@ -161,11 +164,30 @@ class ScenarioFile(pytest.File):
             yield ScenarioItem.from_parent(self, name=scenario.id, scenario=scenario)
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtestloop(session: pytest.Session) -> Generator[None, object, object]:
+    state = session.config.stash.get(STATE, None)
+    items = [item for item in session.items if isinstance(item, ScenarioItem)]
+    if state is None or not items:
+        return (yield)
+    # Every scenario starts now and runs alongside the others; each item then waits for its
+    # own result in order, so pytest's output and -x behave as usual.
+    with Session(state.runner) as run_session:
+        state.session = run_session
+        for item in items:
+            item.future = run_session.submit(item.scenario, state.criteria[item.scenario.criterion])
+        try:
+            return (yield)
+        finally:
+            state.session = None
+
+
 class ScenarioItem(pytest.Item):
     def __init__(self, *, scenario: Scenario, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.scenario = scenario
         self.result: ScenarioResult | None = None
+        self.future: concurrent.futures.Future[ScenarioResult] | None = None
         self.add_marker("juried")
         self.add_marker(scenario.kind)
         self.add_marker(pytest.mark.criterion(scenario.criterion))
@@ -173,7 +195,10 @@ class ScenarioItem(pytest.Item):
     def runtest(self) -> None:
         state = self.config.stash[STATE]
         criterion = state.criteria[self.scenario.criterion]
-        self.result = state.runner.run(self.scenario, criterion)
+        if self.future is not None:
+            self.result = self.future.result()
+        else:
+            self.result = state.runner.run(self.scenario, criterion)
         state.results.append(self.result)
         interval = self.result.interval
         self.user_properties.extend(

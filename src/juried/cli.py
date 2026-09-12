@@ -54,6 +54,7 @@ calibration_dir = "calibration"
 # juried prints what the gate needs at the start of every run.
 runs = 10
 threshold = 0.7
+# All scenarios run together; this caps requests in flight to the target across them.
 concurrency = 4
 cache_dir = ".juried"
 # Verdicts are cached by content so an unchanged response is not judged twice. Responses
@@ -72,6 +73,8 @@ model = "claude-sonnet-5"
 # Each response is judged once. Set an odd number above 1 to judge it that many times and
 # take the majority; the report then shows how often the votes split.
 votes = 1
+# Judge requests in flight across all scenarios, independent of the target cap above.
+concurrency = 4
 
 [generate]
 # provider and model default to the judge settings.

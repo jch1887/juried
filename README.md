@@ -53,11 +53,12 @@ response_path = "choices.0.message.content"
 [run]
 runs = 10          # attempts per scenario
 threshold = 0.7    # floor on the lower bound of the Wilson 95% interval, not a pass rate
-concurrency = 4
+concurrency = 4    # requests in flight to the target, across all scenarios
 
 [judge]
 provider = "anthropic"    # anthropic, openai or stub
 model = "claude-sonnet-5" # pinned and recorded with every verdict
+concurrency = 4           # requests in flight to the judge, across all scenarios
 ```
 
 Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
@@ -116,6 +117,20 @@ ignoring case. Text outside quotes is judged on meaning. With
 `expected: Says returns are accepted within "14 days" for a full refund`, a response saying
 "you have 14 days and get every penny back" passes, while "a fortnight for a full refund"
 fails because `14 days` is missing. The stub judge applies the same rule.
+
+## Concurrency
+
+Scenarios are pytest items, which pytest runs one after another, but juried does not wait
+for one scenario to finish before starting the next. When the run starts every collected
+scenario is submitted to one event loop on a background thread that shares a single HTTP
+client and judge connection, and each pytest item then waits for its own result in order.
+The output, `-x` and `-k` behave exactly as before; the difference is that a run of fifty
+scenarios at ten runs each is bounded by the two concurrency caps, not by fifty sequential
+event loops. `run.concurrency` caps requests in flight to your endpoint and
+`judge.concurrency` caps requests to the judge, so a slow judge does not hold up sampling
+and a fragile staging endpoint can be throttled without starving the judge. Stopping with
+`-x` cancels the scenarios that were still in flight. `.juried/verdicts.jsonl` is appended
+under a file lock, so `pytest-xdist` workers do not interleave lines.
 
 ## How a scenario passes
 

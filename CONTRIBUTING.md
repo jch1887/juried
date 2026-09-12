@@ -36,9 +36,10 @@ and on demand from the Actions tab, using the repository secrets `ANTHROPIC_API_
   generation logic, `prompts.py` the pinned prompts, `stub.py` a key free provider.
 - `src/juried/runner.py`: repeated runs, concurrency and caching.
 - `src/juried/calibrate.py`: `juried calibrate`, the judge against human labelled responses.
+- `src/juried/compare.py`: `juried compare`, regressions between two JSON reports.
 - `src/juried/pytest_plugin.py`: collection of YAML scenarios as pytest items.
 - `src/juried/report/`: JSON and single file HTML output.
-- `src/juried/cli.py`: `init`, `generate`, `calibrate` and `run`.
+- `src/juried/cli.py`: `init`, `generate`, `calibrate`, `compare` and `run`.
 
 The README's roadmap lists what is not built yet; each item maps to one of the extension
 points above (`Target`, `Provider`, the scenario models, the generation prompt).

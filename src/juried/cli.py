@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Sequence
@@ -15,6 +16,7 @@ from juried.calibrate import (
     run_calibration,
     write_calibration_report,
 )
+from juried.compare import CompareError, compare_reports, comparison_dict, load_report
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, load_criteria
 from juried.generate import generate_scenarios
@@ -135,6 +137,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit with status 1 when the judge agrees with fewer labels than this fraction",
     )
 
+    compare = commands.add_parser(
+        "compare", help="compare two JSON reports and flag scenarios that got worse"
+    )
+    compare.add_argument("old", help="the earlier juried-report.json")
+    compare.add_argument("new", help="the later juried-report.json")
+    compare.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.0,
+        metavar="RATE",
+        help="ignore pass rate or lower bound drops up to this much (default 0)",
+    )
+    compare.add_argument("--json", metavar="PATH", help="also write the comparison as JSON")
+
     run = commands.add_parser("run", help="run scenarios with pytest and write the report")
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
     run.add_argument("--runs", type=int, help="override run.runs")
@@ -252,6 +268,36 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     return 0
 
 
+def command_compare(old: str, new: str, tolerance: float, json_path: str | None) -> int:
+    old_path, new_path = Path(old), Path(new)
+    changes = compare_reports(load_report(old_path), load_report(new_path), tolerance)
+    regressions = [change for change in changes if change.regression]
+    improvements = [change for change in changes if change.kind in ("gate regained", "improved")]
+    neutral = [change for change in changes if change.kind in ("added", "removed")]
+    unchanged = sum(1 for change in changes if change.kind == "unchanged")
+    print(f"comparing {old_path} -> {new_path}")
+    for label, group in (
+        ("regressions", regressions),
+        ("improvements", improvements),
+        ("other changes", neutral),
+    ):
+        if group:
+            print(f"{label}:")
+            for change in group:
+                print(f"  {change.kind}: {change.id}: {change.detail}")
+    print(
+        f"{len(regressions)} regression(s), {len(improvements)} improvement(s), "
+        f"{len(neutral)} added or removed, {unchanged} unchanged"
+    )
+    if json_path:
+        path = Path(json_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = comparison_dict(old_path, new_path, changes, tolerance)
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"comparison: {path}")
+    return 1 if regressions else 0
+
+
 def command_run(
     explicit: str | None,
     runs: int | None,
@@ -290,6 +336,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_generate(args.config, args.criterion, args.force)
         if args.command == "calibrate":
             return command_calibrate(args.config, args.min_accuracy)
+        if args.command == "compare":
+            return command_compare(args.old, args.new, args.tolerance, args.json)
         return command_run(
             args.config, args.runs, args.threshold, args.no_cache, args.cache_responses, extra
         )
@@ -299,6 +347,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ScenarioError,
         TargetConfigError,
         CalibrationError,
+        CompareError,
         ProviderError,
         TransportFailure,
     ) as exc:

@@ -29,8 +29,9 @@ juried generate    # turns each criterion into scenarios/generated/<criterion>.y
 juried run         # runs every scenario N times under pytest and writes the report
 ```
 
-A fourth, `juried calibrate`, judges responses your team has already labelled and reports
-how often the judge agrees. See "Trusting the judge" below.
+Two more: `juried calibrate` judges responses your team has already labelled and reports
+how often the judge agrees (see "Trusting the judge"), and `juried compare old.json new.json`
+turns two reports into a regression signal (see "Comparing runs").
 
 `juried run` accepts pytest arguments after its own, for example
 `juried run --runs 20 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
@@ -263,6 +264,24 @@ priced as ordinary input, the table lags price changes, and your account may hav
 rates. Set `input_price` and `output_price` under `[judge]`, in US dollars per million
 tokens, to use your own figures; for a model not in the table the run reports the tokens
 and says the price is unknown until you set them.
+
+## Comparing runs
+
+One run tells you where the feature stands; two tell you which way it is moving. Keep the
+JSON report from a known good run (a release, or last night's main) and compare the next
+one against it:
+
+```
+juried compare reports/baseline.json reports/juried-report.json --json reports/compare.json
+```
+
+Scenarios are matched by id. The command lists, in this order, gates that were upheld and
+now fail, scenarios that became incomplete through transport or judge errors, new scenarios
+that fail their gate, and scenarios whose pass rate or lower bound dropped even though the
+gate still holds. Improvements and added or removed scenarios follow. The exit status is 1
+when there is any regression, so it works as a CI step; `--tolerance 0.05` ignores drops
+smaller than five points, for noise on scenarios with few runs. `--json` writes the same
+findings to a file.
 
 ## The report
 

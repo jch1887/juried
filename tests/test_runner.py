@@ -244,7 +244,7 @@ def test_config_error_stops_the_scenario_cleanly(tmp_path: Path) -> None:
             await asyncio.sleep(0.01)
             if index == 1:
                 raise TargetConfigError("response_path 'answer': key 'answer' not found in {}")
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(5)
             return TargetResponse("Open 9am.", 200, 1.0)
 
     target = BrokenPath(["unused"])
@@ -253,7 +253,8 @@ def test_config_error_stops_the_scenario_cleanly(tmp_path: Path) -> None:
     with pytest.raises(TargetConfigError, match="response_path 'answer'") as info:
         runner.run(scenario(), CRITERION)
     assert not isinstance(info.value, ExceptionGroup)
-    assert time.perf_counter() - started < 0.15
+    # The siblings sleep for five seconds; a cancelled scenario returns long before that.
+    assert time.perf_counter() - started < 2
 
 
 def test_concurrency_limit_respected(tmp_path: Path) -> None:
@@ -268,31 +269,24 @@ def test_judge_has_its_own_concurrency_cap(tmp_path: Path) -> None:
     runner = make_runner(
         tmp_path, target, runs=8, concurrency=8, judge_concurrency=2, provider=judge
     )
-    started = time.perf_counter()
     result = runner.run(scenario(), CRITERION)
-    elapsed = time.perf_counter() - started
     assert result.passes == 8
     assert target.max_active == 8
     assert judge.max_active == 2
-    assert elapsed < 0.02 * 8
 
 
 def test_session_overlaps_scenarios_and_keeps_order(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am."])
     runner = make_runner(tmp_path, target, runs=4, concurrency=6, cache=False)
     scenarios = [scenario(id=f"s{i}", message=f"question {i}") for i in range(5)]
-    started = time.perf_counter()
     with Session(runner) as session:
         futures = [session.submit(item, CRITERION) for item in scenarios]
         results = [future.result() for future in futures]
-    elapsed = time.perf_counter() - started
     assert [result.scenario.id for result in results] == ["s0", "s1", "s2", "s3", "s4"]
     assert all(result.passes == 4 for result in results)
     assert target.calls == 20
-    # Sequential scenarios at concurrency 6 would take five rounds of one sleep each; overlap
-    # brings twenty calls down to about four rounds.
+    # A single scenario has only four attempts, so six in flight proves scenarios overlapped.
     assert target.max_active == 6
-    assert elapsed < 0.01 * 5 * 2
 
 
 def test_session_cancels_unfinished_work_on_exit(tmp_path: Path) -> None:

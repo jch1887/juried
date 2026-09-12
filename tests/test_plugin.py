@@ -209,6 +209,16 @@ def test_stub_judge_is_not_nagged_about_calibration(
     assert "no calibration report" not in result.stdout.str()
 
 
+def test_votes_switch_verdict_caching_off(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url, extra="votes = 3")
+    result = pytester.runpytest("-k", "hours")
+    result.assert_outcomes(passed=1)
+    result.stdout.re_match_lines([r"juried: config .*\(3 votes\).*cache off \(votes > 1\).*"])
+    assert not (pytester.path / ".juried" / "cache" / "verdicts").exists()
+    replay = pytester.runpytest("-k", "hours", "--juried-cache-responses")
+    replay.stdout.re_match_lines([r".*cache responses only, verdicts re-judged \(votes > 1\).*"])
+
+
 def test_replayed_responses_are_shouted_about(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
     first = pytester.runpytest("--juried-cache-responses", "-v", "-k", "hours")

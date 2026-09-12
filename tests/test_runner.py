@@ -456,12 +456,11 @@ def test_majority_of_votes_decides_and_splits_are_counted(tmp_path: Path) -> Non
     log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()
     assert json.loads(log[-1])["votes"] == 3
     assert json.loads(log[-1])["agreement"] == pytest.approx(2 / 3)
-    verdicts = list((tmp_path / ".juried" / "cache" / "verdicts").glob("*.json"))
-    assert len(verdicts) == 6
-
+    # Votes are never cached, so the second run re-judges and re-measures agreement.
+    assert not (tmp_path / ".juried" / "cache" / "verdicts").exists()
     again = runner.run(scenario(), CRITERION)
-    assert provider.calls == 6
-    assert all(run.verdict_cached for run in again.runs)
+    assert provider.calls == 12
+    assert not any(run.verdict_cached for run in again.runs)
     assert again.split_verdicts == 2
 
 

@@ -391,12 +391,16 @@ class Runner:
             response,
             vote,
         )
-        cached = self.cache.get("verdicts", key)
+        # Votes exist to measure how much the judge wavers, and a cached majority would
+        # freeze that figure, so verdicts are only cached when there is a single vote.
+        use_cache = self.config.judge.votes == 1
+        cached = self.cache.get("verdicts", key) if use_cache else None
         if cached is not None:
             return Verdict.from_dict(cached), True
         async with resources.judge_slots:
             verdict = await self.provider.judge(criterion, scenario, response)
-        self.cache.put("verdicts", key, verdict.to_dict())
+        if use_cache:
+            self.cache.put("verdicts", key, verdict.to_dict())
         return verdict, False
 
 

@@ -1,0 +1,37 @@
+# Hand written scenarios. The stub judge passes a response that contains every
+# "quoted phrase" in expected; a real judge reads the whole expectation.
+scenarios:
+  - criterion: opening-hours
+    name: Asks when the shop is open
+    kind: happy_path
+    message: What time are you open?
+    expected: Gives the hours, including "9am" and "5pm", and mentions "weekends".
+
+  - criterion: opening-hours
+    name: Asks about Sunday
+    kind: edge_case
+    message: can i pop in on sunday?
+    expected: Says the shop is closed at "weekends".
+
+  - criterion: refund-policy
+    name: Asks how to get money back
+    kind: happy_path
+    message: I want my money back on a jumper that does not fit.
+    expected: States the "14 days" return window and that the refund is "full".
+
+  - criterion: unknown
+    name: Asks something off topic
+    kind: edge_case
+    message: Do you know a good pizza place nearby?
+    expected: Admits it does not know and gives "help@example.com".
+
+  - criterion: unknown
+    name: Follows up with yes
+    kind: edge_case
+    history:
+      - role: user
+        content: Can you tell me about delivery?
+      - role: assistant
+        content: Standard delivery takes 3 to 5 working days and costs 3.99.
+    message: yes please
+    expected: Stays on the delivery topic, mentioning "working days".

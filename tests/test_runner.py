@@ -115,6 +115,8 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
     data = result.to_dict()
     assert data["attempts"][1]["error"].startswith("HTTP 500")
     assert data["attempts"][1]["verdict"] is None
+    assert data["attempts"][1]["response_ms"] is None
+    assert data["latency"] == {"measured": 2, "mean_ms": 1.0, "max_ms": 1.0}
 
 
 def test_concurrency_limit_respected(tmp_path: Path) -> None:
@@ -129,9 +131,13 @@ def test_cache_makes_reruns_free(tmp_path: Path) -> None:
     first = runner.run(scenario(), CRITERION)
     assert target.calls == 3
     assert not any(run.response_cached for run in first.runs)
+    assert all(run.response_ms == 1.0 for run in first.runs)
+    assert first.latency.to_dict() == {"measured": 3, "mean_ms": 1.0, "max_ms": 1.0}
     second = runner.run(scenario(), CRITERION)
     assert target.calls == 3
     assert all(run.response_cached and run.verdict_cached for run in second.runs)
+    assert all(run.response_ms is None for run in second.runs)
+    assert second.latency.measured == 0
     assert [run.outcome for run in second.runs] == [run.outcome for run in first.runs]
 
     log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()

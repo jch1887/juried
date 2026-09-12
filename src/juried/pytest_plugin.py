@@ -13,7 +13,7 @@ from juried.judge import ProviderError, build_provider
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
-from juried.stats import best_possible_lower_bound
+from juried.stats import best_possible_lower_bound, describe_gate, required_passes
 
 RESPONSE_EXCERPT = 1200
 
@@ -119,6 +119,8 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     warning = state.gate_warning(run.runs, run.threshold)
     if warning:
         lines.append(f"juried: warning: {warning}")
+    else:
+        lines.append(f"juried: {describe_gate(run.runs, run.threshold)}")
     return lines
 
 
@@ -250,6 +252,12 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
     warning = state.gate_warning(result.total, result.threshold)
     if warning:
         lines.append(f"  note: {warning}")
+    else:
+        needed = required_passes(result.total, result.threshold)
+        lines.append(
+            f"  note: {describe_gate(result.total, result.threshold)}; "
+            f"{needed} of {result.total} runs had to pass and {result.passes} did"
+        )
     failures = result.failures
     if failures:
         lines.extend(format_run(failures[0], result.scenario))

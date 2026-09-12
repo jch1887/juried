@@ -274,6 +274,7 @@ def excerpt(text: str | None) -> str:
 def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
     lines = [f"  first failing run: attempt {record.attempt} ({record.label})"]
     lines.extend(f"    {turn.role}: {turn.content}" for turn in scenario.history)
+    lines.extend(f"    {turn.role} (live): {excerpt(turn.content)}" for turn in record.transcript)
     lines.append(f"    user: {scenario.message}")
     if record.error is not None:
         lines.append(f"    transport error: {record.error}")

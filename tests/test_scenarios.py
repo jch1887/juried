@@ -120,3 +120,18 @@ def test_dump_round_trip() -> None:
     assert "threshold" not in text
     reloaded = parse_scenario_file(text)
     assert [s.model_dump() for s in reloaded] == [s.model_dump() for s in scenarios]
+
+
+def test_turns_are_optional_and_non_empty() -> None:
+    from pydantic import ValidationError
+
+    plain = Scenario(id="a", criterion="c", name="n", message="m", expected="e")
+    assert plain.turns == []
+    talky = Scenario(
+        id="a", criterion="c", name="n", message="m", expected="e", turns=["one", "two"]
+    )
+    assert talky.turns == ["one", "two"]
+    with pytest.raises(ValidationError):
+        Scenario(id="a", criterion="c", name="n", message="m", expected="e", turns=[""])
+    dumped = dump_scenario_file("c", [plain, talky])
+    assert dumped.count("turns:") == 1

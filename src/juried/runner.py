@@ -16,7 +16,7 @@ from juried.config import Config
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
 from juried.pricing import Usage
-from juried.scenarios import Scenario
+from juried.scenarios import Scenario, Turn
 from juried.stats import Interval, required_passes, wilson_interval
 from juried.targets.base import Target
 from juried.targets.http import HttpTarget, TargetConfigError
@@ -34,6 +34,9 @@ class RunRecord:
     verdict: Verdict | None = None
     votes: list[Verdict] = field(default_factory=list)
     fresh_votes: list[Usage] = field(default_factory=list)
+    # Live turns before the final message: the user messages from `turns` and the feature's
+    # replies to them, in order.
+    transcript: list[Turn] = field(default_factory=list)
     response_cached: bool = False
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
@@ -83,6 +86,7 @@ class RunRecord:
             "attempt": self.attempt,
             "outcome": self.outcome,
             "response": self.response,
+            "transcript": [turn.model_dump() for turn in self.transcript],
             "error": self.error,
             "judge_error": self.judge_error,
             "verdict": self.verdict.to_dict() if self.verdict else None,
@@ -211,6 +215,7 @@ class ScenarioResult:
             "criterion": self.criterion.id,
             "message": self.scenario.message,
             "history": [turn.model_dump() for turn in self.scenario.history],
+            "turns": list(self.scenario.turns),
             "expected": self.scenario.expected,
             "tags": list(self.scenario.tags),
             "source": str(self.scenario.source) if self.scenario.source else None,
@@ -312,38 +317,26 @@ class Runner:
         record = RunRecord(attempt=attempt)
         history = [turn.model_dump() for turn in scenario.history]
         started = time.perf_counter()
-        target = resources.target
-        # Replaying responses defeats repeated sampling, so it is opt in and every
-        # replayed attempt is flagged in the record, the terminal and the report.
-        replay = self.config.run.cache_responses
-        response_key = Cache.key(
-            "response", target.fingerprint(), scenario.message, history, attempt
-        )
-        cached_response = self.cache.get("responses", response_key) if replay else None
-        if cached_response is not None:
-            record.response = str(cached_response["text"])
-            record.response_cached = True
-        else:
-            async with resources.target_slots:
-                try:
-                    response = await target.send(scenario.message, scenario.history)
-                except TransportFailure as exc:
-                    record.error = str(exc)
-                    record.elapsed_ms = (time.perf_counter() - started) * 1000
-                    return record
-            record.response = response.text
-            record.response_ms = response.elapsed_ms
-            if replay:
-                self.cache.put(
-                    "responses",
-                    response_key,
-                    {"text": response.text, "status_code": response.status_code},
-                )
+        # Each turn is answered live and its reply becomes context for the next, so the
+        # feature is driven through the conversation rather than handed a script.
+        conversation: list[Turn] = list(scenario.history)
+        for step, text in enumerate([*scenario.turns, scenario.message]):
+            reply = await self._send(resources, record, text, conversation, attempt, step)
+            if reply is None:
+                record.elapsed_ms = (time.perf_counter() - started) * 1000
+                return record
+            if step < len(scenario.turns):
+                exchange = [Turn(role="user", content=text), Turn(role="assistant", content=reply)]
+                conversation.extend(exchange)
+                record.transcript.extend(exchange)
+            else:
+                record.response = reply
+        assert record.response is not None
 
         try:
             votes = await asyncio.gather(
                 *(
-                    self._vote(resources, criterion, scenario, history, record.response, vote)
+                    self._vote(resources, criterion, scenario, history, record, vote)
                     for vote in range(1, self.config.judge.votes + 1)
                 )
             )
@@ -371,15 +364,56 @@ class Runner:
         )
         return record
 
+    async def _send(
+        self,
+        resources: Resources,
+        record: RunRecord,
+        text: str,
+        conversation: list[Turn],
+        attempt: int,
+        step: int,
+    ) -> str | None:
+        # Replaying responses defeats repeated sampling, so it is opt in and every
+        # replayed attempt is flagged in the record, the terminal and the report.
+        replay = self.config.run.cache_responses
+        target = resources.target
+        key = Cache.key(
+            "response",
+            target.fingerprint(),
+            text,
+            [turn.model_dump() for turn in conversation],
+            attempt,
+            step,
+        )
+        cached = self.cache.get("responses", key) if replay else None
+        if cached is not None:
+            record.response_cached = True
+            return str(cached["text"])
+        async with resources.target_slots:
+            try:
+                response = await target.send(text, conversation)
+            except TransportFailure as exc:
+                turn = f"turn {step + 1}: " if step else ""
+                record.error = f"{turn}{exc}"
+                return None
+        record.response_ms = (record.response_ms or 0.0) + response.elapsed_ms
+        if replay:
+            self.cache.put(
+                "responses", key, {"text": response.text, "status_code": response.status_code}
+            )
+        return response.text
+
     async def _vote(
         self,
         resources: Resources,
         criterion: Criterion,
         scenario: Scenario,
         history: list[dict[str, str]],
-        response: str,
+        record: RunRecord,
         vote: int,
     ) -> tuple[Verdict, bool]:
+        assert record.response is not None
+        transcript = [turn.model_dump() for turn in record.transcript]
         key = Cache.key(
             "verdict",
             self.provider.fingerprint(),
@@ -387,8 +421,9 @@ class Runner:
             criterion.description,
             scenario.message,
             history,
+            transcript,
             scenario.expected,
-            response,
+            record.response,
             vote,
         )
         # Votes exist to measure how much the judge wavers, and a cached majority would
@@ -398,7 +433,9 @@ class Runner:
         if cached is not None:
             return Verdict.from_dict(cached), True
         async with resources.judge_slots:
-            verdict = await self.provider.judge(criterion, scenario, response)
+            verdict = await self.provider.judge(
+                criterion, scenario, record.response, record.transcript
+            )
         if use_cache:
             self.cache.put("verdicts", key, verdict.to_dict())
         return verdict, False

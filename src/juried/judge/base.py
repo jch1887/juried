@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from juried.criteria import Criterion
 from juried.judge import prompts
 from juried.pricing import Usage
-from juried.scenarios import Scenario, ScenarioDraft
+from juried.scenarios import Scenario, ScenarioDraft, Turn
 from juried.transport import TransportFailure, request_json
 
 JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
@@ -85,7 +85,11 @@ class Provider(ABC):
 
     @abstractmethod
     async def judge(
-        self, criterion: Criterion, scenario: Scenario, response_text: str
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
     ) -> Verdict: ...
 
     @abstractmethod
@@ -172,10 +176,16 @@ class LLMProvider(Provider):
         self, system: str, user: str, schema: dict[str, Any], max_tokens: int
     ) -> tuple[dict[str, Any], Usage]: ...
 
-    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
         data, usage = await self.complete_json(
             prompts.JUDGE_SYSTEM,
-            prompts.judge_user_prompt(criterion, scenario, response_text),
+            prompts.judge_user_prompt(criterion, scenario, response_text, transcript),
             prompts.JUDGE_SCHEMA,
             self.max_tokens,
         )

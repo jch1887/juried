@@ -62,11 +62,17 @@ class SplitProvider(StubProvider):
         super().__init__()
         self.calls = 0
 
-    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
         self.calls += 1
         if self.calls % 3 == 0:
             return Verdict(False, "dissent", self.model, Verdict.now())
-        return await super().judge(criterion, scenario, response_text)
+        return await super().judge(criterion, scenario, response_text, transcript)
 
 
 class SlowJudge(StubProvider):
@@ -76,12 +82,18 @@ class SlowJudge(StubProvider):
         self.active = 0
         self.max_active = 0
 
-    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         await asyncio.sleep(self.delay)
         self.active -= 1
-        return await super().judge(criterion, scenario, response_text)
+        return await super().judge(criterion, scenario, response_text, transcript)
 
 
 def make_runner(
@@ -189,14 +201,18 @@ def test_judge_errors_are_recorded_per_attempt(tmp_path: Path) -> None:
             self.calls = 0
 
         async def judge(
-            self, criterion: Criterion, scenario: Scenario, response_text: str
+            self,
+            criterion: Criterion,
+            scenario: Scenario,
+            response_text: str,
+            transcript: Sequence[Turn] = (),
         ) -> Verdict:
             self.calls += 1
             if self.calls == 2:
                 raise ProviderError("stub provider needs the STUB_KEY environment variable")
             if self.calls == 3:
                 raise TransportFailure("HTTP 529 from https://judge", status_code=529)
-            return await super().judge(criterion, scenario, response_text)
+            return await super().judge(criterion, scenario, response_text, transcript)
 
     target = ScriptedTarget(["Open 9am.", "Open 9am!", "Open 9am?", "Open 9am;"])
     runner = make_runner(tmp_path, target, runs=4, concurrency=1)
@@ -397,8 +413,14 @@ def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
 
 
 class MeteredStub(StubProvider):
-    async def judge(self, criterion: Criterion, scenario: Scenario, response_text: str) -> Verdict:
-        verdict = await super().judge(criterion, scenario, response_text)
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
+        verdict = await super().judge(criterion, scenario, response_text, transcript)
         return Verdict(
             verdict.passed, verdict.reason, verdict.model, verdict.judged_at, Usage(100, 7, 1)
         )
@@ -467,7 +489,11 @@ def test_majority_of_votes_decides_and_splits_are_counted(tmp_path: Path) -> Non
 def test_majority_can_fail_a_passing_stub(tmp_path: Path) -> None:
     class Dissenter(StubProvider):
         async def judge(
-            self, criterion: Criterion, scenario: Scenario, response_text: str
+            self,
+            criterion: Criterion,
+            scenario: Scenario,
+            response_text: str,
+            transcript: Sequence[Turn] = (),
         ) -> Verdict:
             return Verdict(False, "always no", self.model, Verdict.now())
 
@@ -477,6 +503,96 @@ def test_majority_can_fail_a_passing_stub(tmp_path: Path) -> None:
     assert result.passes == 0
     assert result.runs[0].agreement == 1.0
     assert result.runs[0].reason == "always no"
+
+
+class ConversationTarget(ScriptedTarget):
+    """Replies echo the turn number and how many prior turns it was shown."""
+
+    def __init__(self, failing_step: int | None = None) -> None:
+        super().__init__([])
+        self.seen: list[tuple[str, list[str]]] = []
+        self.failing_step = failing_step
+
+    async def send(self, message: str, history: Sequence[Turn]) -> TargetResponse:
+        self.calls += 1
+        self.seen.append((message, [turn.content for turn in history]))
+        await asyncio.sleep(0.001)
+        if self.failing_step is not None and len(history) // 2 == self.failing_step:
+            raise TransportFailure("HTTP 502 from http://bot", status_code=502)
+        return TargetResponse(f"reply to {message!r} after {len(history)} turns", 200, 2.0)
+
+
+def test_turns_are_driven_live_and_feed_the_next_turn(tmp_path: Path) -> None:
+    target = ConversationTarget()
+    runner = make_runner(tmp_path, target, runs=1)
+    item = scenario(
+        turns=["first", "second"],
+        message="last",
+        expected='Mentions "after 4 turns".',
+        history=[Turn(role="user", content="hi"), Turn(role="assistant", content="hello")],
+    )
+    result = runner.run(item, CRITERION)
+    assert target.calls == 3
+    assert target.seen == [
+        ("first", ["hi", "hello"]),
+        ("second", ["hi", "hello", "first", "reply to 'first' after 2 turns"]),
+        (
+            "last",
+            [
+                "hi",
+                "hello",
+                "first",
+                "reply to 'first' after 2 turns",
+                "second",
+                "reply to 'second' after 4 turns",
+            ],
+        ),
+    ]
+    run = result.runs[0]
+    assert run.response == "reply to 'last' after 6 turns"
+    assert [turn.role for turn in run.transcript] == ["user", "assistant", "user", "assistant"]
+    assert run.transcript[3].content == "reply to 'second' after 4 turns"
+    assert run.response_ms == 6.0
+    assert result.passes == 0  # the stub checks the final response only
+    data = result.to_dict()
+    assert data["turns"] == ["first", "second"]
+    assert data["attempts"][0]["transcript"][0] == {"role": "user", "content": "first"}
+
+
+def test_transport_error_mid_conversation_names_the_turn(tmp_path: Path) -> None:
+    target = ConversationTarget(failing_step=1)
+    runner = make_runner(tmp_path, target, runs=1)
+    result = runner.run(scenario(turns=["first", "second"], message="last"), CRITERION)
+    assert result.transport_errors == 1
+    assert target.calls == 2
+    run = result.runs[0]
+    assert run.error is not None and run.error.startswith("turn 2: HTTP 502")
+    assert run.response is None
+    assert len(run.transcript) == 2
+
+
+def test_judge_sees_the_transcript_and_it_keys_the_cache(tmp_path: Path) -> None:
+    class Recording(StubProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.transcripts: list[list[str]] = []
+
+        async def judge(
+            self,
+            criterion: Criterion,
+            scenario: Scenario,
+            response_text: str,
+            transcript: Sequence[Turn] = (),
+        ) -> Verdict:
+            self.transcripts.append([turn.content for turn in transcript])
+            return await super().judge(criterion, scenario, response_text, transcript)
+
+    provider = Recording()
+    runner = make_runner(tmp_path, ConversationTarget(), runs=1, provider=provider)
+    runner.run(scenario(turns=["first"], message="last"), CRITERION)
+    assert provider.transcripts == [["first", "reply to 'first' after 0 turns"]]
+    runner.run(scenario(turns=["other"], message="last"), CRITERION)
+    assert len(provider.transcripts) == 2  # a different transcript is a different verdict
 
 
 def test_result_dict_shape(tmp_path: Path) -> None:

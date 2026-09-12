@@ -119,6 +119,10 @@
   {% for turn in scenario.history %}
   <p><span class="label">{{ turn.role }}</span>{{ turn.content }}</p>
   {% endfor %}
+  {% for turn in scenario.turns %}
+  <p><span class="label">user</span>{{ turn }}</p>
+  <p><span class="label">assistant</span><span class="meta">live reply, shown per run below</span></p>
+  {% endfor %}
   <p><span class="label">user</span>{{ scenario.message }}</p>
   <p><span class="label">expected</span>{{ scenario.expected }}</p>
 </div>
@@ -128,6 +132,9 @@
   {% for failure in scenario.failures %}
   <div class="transcript">
     <p><span class="label">attempt {{ failure.attempt }}</span>{{ failure.outcome.replace('_', ' ') if failure.outcome.endswith('error') else 'failed' }}</p>
+    {% for turn in failure.transcript %}
+    <p><span class="label">{{ turn.role }} (live)</span>{{ turn.content }}</p>
+    {% endfor %}
     {% if failure.response is not none %}
     <p><span class="label">response</span>{{ failure.response }}</p>
     {% endif %}

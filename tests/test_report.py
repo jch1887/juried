@@ -102,7 +102,7 @@ class Checker(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "script":
             self.scripts += 1
-        if tag not in {"meta", "br", "link"}:
+        if tag not in {"meta", "br", "link", "img"}:
             self.open.append(tag)
 
     def handle_endtag(self, tag: str) -> None:
@@ -117,6 +117,7 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     checker.feed(html)
     assert checker.open == []
     assert checker.scripts == 0
+    assert '<img src="data:image/png;base64,iVBOR' in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "Asks about a refund &lt;late&gt;" in html
     assert "Opening hours" in html

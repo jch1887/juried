@@ -1,4 +1,4 @@
-# vouch
+<img src="vouch.png" alt="vouch" width="360">
 
 Acceptance testing for LLM features, built for QA teams.
 

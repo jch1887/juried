@@ -9,6 +9,13 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Breaking changes
 
+- A quoted phrase in `expected` is enforced before the judge, for every provider: a
+  response missing one fails the attempt with the reason and no judge call is made. The
+  match now ignores case, runs of whitespace, hyphens and punctuation that ends a word, so
+  "14-days," satisfies `"14 days"`; `[judge] strict_quotes = true` restores the word for
+  word match. The stub judge uses the same rule. Attempts that a check decided carry a
+  verdict with model `checks`, are not written to `.juried/verdicts.jsonl`, and count as
+  failures in the gate as any failed attempt does.
 - `juried compare` tests a drop instead of subtracting it. For each scenario in both
   reports it runs Fisher's exact test, one sided for a decrease, on the passes and fails,
   and a drop is a regression only when its p-value is below `--alpha` (default 0.05) and
@@ -44,6 +51,13 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- Deterministic checks. A scenario's `checks` list runs on every response before the judge:
+  `contains`, `not_contains`, `regex`, `json_schema` (a schema file, validated with the
+  `jsonschema` package from the new `juried[schema]` extra), `max_latency_ms` and
+  `max_chars`. A failing check fails the attempt with its reason and skips the judge. Every
+  attempt records which checks ran and which failed; the failing run output, the JSON
+  report (`checks` per attempt and per failure, `checks_failed` per scenario) and the HTML
+  report show them.
 - Streaming targets. `[target] stream = true` with `stream_format` (`sse` or `ndjson`)
   and `stream_path`, the dotted path to the text delta in each event, reads the reply as
   it arrives: the deltas are joined into the response, events without one are skipped,
@@ -89,7 +103,6 @@ change between minor versions; every such change is listed under "Breaking chang
   written, derived as above, so existing dashboards keep working.
 - `juried compare` reads the passes a gate needed from `misses`, `required_passes` or
   `threshold`, whichever the report carries, and writes it as `passes_needed` in `--json`.
-- `docs/upgrading-0.3.md`, the migration notes for 0.3.
 
 ### Changed
 

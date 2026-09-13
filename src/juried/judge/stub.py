@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 
+from juried.checks import contains, quoted_phrases
 from juried.criteria import Criterion
 from juried.judge.base import Provider, Verdict
 from juried.scenarios import Scenario, ScenarioDraft, Turn
 
-QUOTED = re.compile(r'"([^"]+)"')
-
 
 class StubProvider(Provider):
     """Deterministic provider for examples and tests. Passes when the response is non empty and
-    contains every double quoted phrase from the scenario's expectation."""
+    contains every double quoted phrase from the scenario's expectation, matched with the
+    same normalisation as a `contains` check unless strict_quotes is set."""
 
     name = "stub"
 
-    def __init__(self, model: str = "stub") -> None:
+    def __init__(self, model: str = "stub", strict_quotes: bool = False) -> None:
         self.model = model
+        self.strict_quotes = strict_quotes
 
     def fingerprint(self) -> str:
         return f"stub:{self.model}"
@@ -31,9 +31,8 @@ class StubProvider(Provider):
     ) -> Verdict:
         if not response_text.strip():
             return Verdict(False, "response was empty", self.model, Verdict.now())
-        lowered = response_text.lower()
-        for phrase in QUOTED.findall(scenario.expected):
-            if phrase.lower() not in lowered:
+        for phrase in quoted_phrases(scenario.expected):
+            if not contains(response_text, phrase, self.strict_quotes):
                 return Verdict(
                     False, f"response does not mention {phrase!r}", self.model, Verdict.now()
                 )

@@ -37,10 +37,14 @@ Issues = "https://github.com/jch1887/juried/issues"
 Changelog = "https://github.com/jch1887/juried/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+# json_schema checks validate the response against a schema file.
+schema = ["jsonschema>=4.18"]
 dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML",
+    "jsonschema>=4.18",
+    "types-jsonschema",
 ]
 
 [project.scripts]

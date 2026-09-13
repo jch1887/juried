@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from juried.cache import Cache
+from juried.checks import CheckError
 from juried.config import parse_config
 from juried.criteria import Criterion
 from juried.judge import Provider, ProviderError, StubProvider, Usage, Verdict
@@ -139,8 +140,9 @@ def test_repeated_runs_and_gate(tmp_path: Path) -> None:
     assert make_runner(tmp_path, target).run(scenario(), CRITERION).gate_passed
     assert len(result.failures) == 1
     assert result.failures[0].attempt == 10
-    assert result.failures[0].reason == "response does not mention '9am'"
-    assert all(run.verdict is not None and run.verdict.model == "stub" for run in result.runs)
+    assert result.failures[0].reason == "contains '9am': response does not contain '9am'"
+    models = [run.verdict.model if run.verdict else None for run in result.runs]
+    assert models == ["stub"] * 9 + ["checks"]
 
 
 def test_all_pass_meets_default_gate(tmp_path: Path) -> None:
@@ -167,6 +169,69 @@ def test_per_scenario_overrides(tmp_path: Path) -> None:
     assert legacy.gate == Gate(4, 2, 0.1)
     assert legacy.threshold == 0.1
     assert legacy.gate_passed
+
+
+class CountingStub(StubProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    async def judge(
+        self,
+        criterion: Criterion,
+        scenario: Scenario,
+        response_text: str,
+        transcript: Sequence[Turn] = (),
+    ) -> Verdict:
+        self.calls += 1
+        return await super().judge(criterion, scenario, response_text, transcript)
+
+
+def test_checks_decide_the_attempt_before_the_judge(tmp_path: Path) -> None:
+    judge = CountingStub()
+    target = ScriptedTarget(["Open 9am to 5pm.", "Open 9am to 5pm and midnight to 4am."])
+    checked = scenario(checks=[{"not_contains": "midnight"}, {"max_chars": 30}])
+    runner = make_runner(tmp_path, target, runs=4, cache=False, provider=judge)
+    result = runner.run(checked, CRITERION)
+    assert judge.calls == 2, "the judge is only asked about responses that passed the checks"
+    assert result.passes == 2
+    assert result.checks_failed == 2
+    assert not result.gate_passed
+    failed_run = result.runs[1]
+    assert failed_run.failed_by_checks
+    assert failed_run.verdict is not None and failed_run.verdict.model == "checks"
+    assert failed_run.verdict.reason == (
+        "not_contains 'midnight': response contains 'midnight'; max_chars 30: 36 chars is "
+        "over the limit"
+    )
+    assert [(o.check.kind, o.passed) for o in failed_run.checks] == [
+        ("contains", True),
+        ("not_contains", False),
+        ("max_chars", False),
+    ]
+    passed_run = result.runs[0]
+    assert [o.passed for o in passed_run.checks] == [True, True, True]
+    data = result.to_dict()
+    assert data["checks_failed"] == 2
+    assert data["checks"] == [{"not_contains": "midnight"}, {"max_chars": 30}]
+    assert data["attempts"][1]["checks"][1]["reason"] == "response contains 'midnight'"
+    assert data["attempts"][1]["verdict"]["model"] == "checks"
+    # Nothing a check decided reaches the verdict log or the cache.
+    log = (tmp_path / ".juried" / "verdicts.jsonl").read_text()
+    assert log.count("\n") == 2
+    # A quoted phrase in `expected` is a check too, so the judge is skipped when it fails.
+    quoted = make_runner(tmp_path, ScriptedTarget(["Closed."]), runs=2, cache=False, provider=judge)
+    outcome = quoted.run(scenario(), CRITERION)
+    assert judge.calls == 2
+    assert outcome.checks_failed == 2
+    assert outcome.runs[0].checks[0].source == "expected"
+
+
+def test_check_configuration_errors_stop_the_scenario(tmp_path: Path) -> None:
+    target = ScriptedTarget(["{}"])
+    broken = scenario(checks=[{"json_schema": "missing.json"}])
+    with pytest.raises(CheckError, match="cannot read"):
+        make_runner(tmp_path, target, runs=2).run(broken, CRITERION)
 
 
 def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> None:
@@ -362,7 +427,9 @@ def test_responses_are_sampled_afresh_by_default(tmp_path: Path) -> None:
     assert target.calls == 6
     assert second.responses_from_cache == 0
     assert not any(run.response_cached for run in second.runs)
-    assert all(run.verdict_cached for run in second.runs)
+    # "Closed." fails its quoted phrase check, so it is never judged and never cached.
+    assert [run.failed_by_checks for run in second.runs] == [False, False, True]
+    assert all(run.verdict_cached for run in second.runs if not run.failed_by_checks)
     assert all(run.response_ms == 1.0 for run in second.runs)
     assert not (tmp_path / ".juried" / "cache" / "responses").exists()
     assert second.to_dict()["responses_from_cache"] == 0
@@ -378,15 +445,17 @@ def test_response_replay_is_opt_in_and_flagged(tmp_path: Path) -> None:
     assert first.latency.to_dict() == {"measured": 3, "mean_ms": 1.0, "max_ms": 1.0}
     second = runner.run(scenario(), CRITERION)
     assert target.calls == 3
-    assert all(run.response_cached and run.verdict_cached for run in second.runs)
+    assert all(run.response_cached for run in second.runs)
+    assert all(run.verdict_cached for run in second.runs if not run.failed_by_checks)
     assert second.responses_from_cache == 3
     assert second.to_dict()["responses_from_cache"] == 3
     assert all(run.response_ms is None for run in second.runs)
     assert second.latency.measured == 0
     assert [run.outcome for run in second.runs] == [run.outcome for run in first.runs]
 
+    # Only judge verdicts are logged: two per run, the third attempt failed a check.
     log = (tmp_path / ".juried" / "verdicts.jsonl").read_text().splitlines()
-    assert len(log) == 6
+    assert len(log) == 4
     entry = json.loads(log[-1])
     assert entry["model"] == "stub"
     assert entry["cached"] is True
@@ -399,7 +468,7 @@ def test_cache_keys_include_attempt_and_content(tmp_path: Path) -> None:
     runner.run(scenario(), CRITERION)
     runner.run(scenario(message="Different question"), CRITERION)
     assert target.calls == 4
-    runner.run(scenario(expected='Mentions "5pm".'), CRITERION)
+    runner.run(scenario(expected='Mentions "9am" plainly.'), CRITERION)
     assert target.calls == 4
     responses = list((tmp_path / ".juried" / "cache" / "responses").glob("*.json"))
     verdicts = list((tmp_path / ".juried" / "cache" / "verdicts").glob("*.json"))
@@ -628,9 +697,10 @@ def test_judge_sees_the_transcript_and_it_keys_the_cache(tmp_path: Path) -> None
 
     provider = Recording()
     runner = make_runner(tmp_path, ConversationTarget(), runs=1, provider=provider)
-    runner.run(scenario(turns=["first"], message="last"), CRITERION)
+    # No quoted phrase in the expectation, so nothing is decided before the judge.
+    runner.run(scenario(turns=["first"], message="last", expected="replies"), CRITERION)
     assert provider.transcripts == [["first", "reply to 'first' after 0 turns"]]
-    runner.run(scenario(turns=["other"], message="last"), CRITERION)
+    runner.run(scenario(turns=["other"], message="last", expected="replies"), CRITERION)
     assert len(provider.transcripts) == 2  # a different transcript is a different verdict
 
 

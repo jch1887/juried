@@ -167,6 +167,9 @@ class JudgeConfig(StrictModel):
     # The environment variable holding the key; defaults to the provider's own.
     api_key_env: str | None = None
     votes: int = Field(default=1, ge=1)
+    # Quoted phrases in `expected` must match word for word, as before 0.3, rather than
+    # ignoring case, spacing, hyphens and end of word punctuation.
+    strict_quotes: bool = False
 
     @field_validator("base_url", "api_key_env")
     @classmethod

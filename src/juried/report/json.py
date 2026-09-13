@@ -56,6 +56,8 @@ def scenario_entry(
             "judged_at": run.verdict.judged_at if run.verdict else None,
             "agreement": run.agreement,
             "votes": len(run.votes),
+            "checks": [outcome.to_dict() for outcome in run.checks],
+            "by_checks": run.failed_by_checks,
         }
         for run in result.failures
     ]

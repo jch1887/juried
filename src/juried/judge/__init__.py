@@ -20,9 +20,10 @@ def build_provider(
     max_tokens: int = 2048,
     base_url: str | None = None,
     api_key_env: str | None = None,
+    strict_quotes: bool = False,
 ) -> Provider:
     if name == "stub":
-        return StubProvider(model)
+        return StubProvider(model, strict_quotes)
     if name == "anthropic":
         return AnthropicProvider(model, temperature, max_tokens, base_url, api_key_env)
     if name == "openai":

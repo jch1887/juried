@@ -65,7 +65,7 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"cache verdicts only, concurrency 4 target / 4 judge",
             r"juried: gate needs 4/4 passes \(no misses tolerated\)",
             r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(needs 4, "
-            r"interval 0.00 to 0.49\).*",
+            r"interval 0.00 to 0.49\), 4 failed a check.*",
             r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(needs 4, "
             r"interval 0.51 to 1.00\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
@@ -79,7 +79,9 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"\s+first failing run: attempt 1 \(failed\)",
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
-            r"\s+judge \(stub\): response does not mention '14 days'",
+            r"\s+checks: 0 of 1 passed",
+            r"\s+failed contains '14 days': response does not contain '14 days'",
+            r"\s+judge: not called, a check decided the attempt",
             r"2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
             r"judge usage: 0 input \+ 0 output tokens over 0 call\(s\), estimated \$0.0000 at "
             r"list prices of 20",
@@ -181,7 +183,8 @@ scenarios:
             "*assistant (live): We are open Monday to Friday, 9am to 5pm.",
             "*user: and the history?",
             "*response: History had 2 turns.",
-            "*judge (stub): response does not mention '9am'",
+            "*checks: 1 of 2 passed",
+            "*failed contains '9am': response does not contain '9am'",
         ]
     )
     report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
@@ -191,6 +194,51 @@ scenarios:
     html = (pytester.path / "reports" / "juried-report.html").read_text()
     assert "user (live)</span>what are your hours?" in html
     assert "live reply, shown per run below" in html
+
+
+def test_failed_checks_are_shown_and_skip_the_judge(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    (pytester.path / "scenarios" / "c-checks.yaml").write_text(
+        """
+criterion: opening-hours
+scenarios:
+  - name: Checked
+    message: What are your opening hours?
+    expected: Gives the "9am" opening time.
+    checks:
+      - not_contains: "5pm"
+      - max_chars: 500
+      - regex: "\\\\b9am\\\\b"
+"""
+    )
+    result = pytester.runpytest("-v", "-k", "checked")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*checked FAILED 0/4 (needs 4, interval 0.00 to 0.49), 4 failed a check*",
+            "*checks: 3 of 4 passed",
+            "*failed not_contains '5pm': response contains '5pm'",
+            "*judge: not called, a check decided the attempt",
+        ]
+    )
+    assert "judge (stub)" not in result.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    scenario = report["criteria"][0]["scenarios"][0]
+    assert scenario["checks_failed"] == 4
+    assert scenario["failures"][0]["by_checks"] is True
+    assert [c["kind"] for c in scenario["failures"][0]["checks"]] == [
+        "contains",
+        "not_contains",
+        "max_chars",
+        "regex",
+    ]
+    html = (pytester.path / "reports" / "juried-report.html").read_text()
+    assert "not_contains 5pm: response contains &#39;5pm&#39;" in html
+    assert "not called, a check decided the attempt" in html
+    assert "4 by checks" in html
+    assert '<p><span class="label">checks</span>not_contains 5pm; max_chars 500; regex' in html
 
 
 def test_stops_on_first_failure(pytester: pytest.Pytester, fake_bot_url: str) -> None:

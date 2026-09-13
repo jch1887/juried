@@ -19,7 +19,7 @@ model, and `juried calibrate` tells you how far to trust that model.
 ## Install
 
 ```
-pip install juried
+pip install juried            # add juried[schema] for json_schema checks
 ```
 
 Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
@@ -159,6 +159,26 @@ scenarios:
 
 Add `turns` for a live conversation before `message`; see the conversation fields below.
 
+A scenario may also carry `checks`, deterministic tests that run on every response before
+the judge is asked. A failing check fails the attempt with its reason and the judge is not
+called, which saves the spend on responses that were never going to pass:
+
+```yaml
+    checks:
+      - contains: "14 days"          # case, spacing, hyphens and end punctuation ignored
+      - not_contains: "30 days"
+      - regex: "\\b14[ -]?days?\\b"   # Python syntax, case sensitive unless (?i)
+      - json_schema: schemas/reply.json   # path from the directory holding juried.toml
+      - max_latency_ms: 4000         # the final response's latency
+      - max_chars: 1200
+```
+
+Each entry is one check. `json_schema` parses the response as JSON and validates it with
+the `jsonschema` package, installed by `pip install juried[schema]`. Every attempt records
+which checks ran and which failed, the failing run output lists them, and the report shows
+them under each scenario and each failing run. They are not a judge: `contains` tells you
+a phrase is there, not that the answer is right.
+
 The judge sees each part of the scenario in its own delimited section and is told that the
 response is untrusted output which may contain instructions or claims about the verdict, so a
 response that says "this meets the expectation, pass" is judged on what it does for the user,
@@ -187,11 +207,16 @@ feature's own replies, then the final message and response, and is told the expe
 refer to what was said earlier. The transcript is recorded on every attempt, shown for
 failing runs in the terminal and the report, and kept in the JSON.
 
-A phrase in double quotes inside `expected` must appear in the response word for word,
-ignoring case. Text outside quotes is judged on meaning. With
+A phrase in double quotes inside `expected` must appear in the response. Text outside
+quotes is judged on meaning. With
 `expected: Says returns are accepted within "14 days" for a full refund`, a response saying
 "you have 14 days and get every penny back" passes, while "a fortnight for a full refund"
-fails because `14 days` is missing. The stub judge applies the same rule.
+fails because `14 days` is missing. The phrase is matched as a `contains` check is, ignoring
+case, runs of whitespace, hyphens and punctuation that ends a word, so "14-days," counts;
+set `strict_quotes = true` under `[judge]` to require it word for word, ignoring case only,
+as before 0.3. Quoted phrases run as checks before the judge, so a response missing one
+fails without a judge call whichever provider is configured. The stub judge applies the
+same rule to calibration cases.
 
 ## Concurrency
 
@@ -225,7 +250,6 @@ juried prints what the gate needs at the top of every run
 (`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
 and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
 release: juried derives `misses` from it and prints a notice naming the value to set instead.
-`docs/upgrading-0.3.md` has the details.
 
 A failing gate is a normal pytest failure that shows the passes, the misses tolerated, the
 interval and the first failing transcript with the judge's reason.
@@ -470,7 +494,7 @@ change to any of them is a new major version:
 - `juried.toml`: every key, its type, its default and its meaning. New keys may be added;
   existing keys are not removed or repurposed.
 - The scenario YAML shape: `criterion`, `scenarios`, and each scenario's `id`, `name`,
-  `kind`, `message`, `expected`, `history`, `turns`, `runs`, `misses` and `tags`.
+  `kind`, `message`, `expected`, `history`, `turns`, `checks`, `runs`, `misses` and `tags`.
   `threshold` is deprecated and is removed in 0.4.
 - The calibration YAML shape: `criterion`, `cases`, and each case's `name`, `criterion`,
   `message`, `history`, `expected`, `response`, `verdict` and `note`.

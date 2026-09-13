@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from juried.cache import Cache
+from juried.checks import CheckError, CheckOutcome, failed, run_checks
 from juried.config import Config
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
@@ -23,6 +24,8 @@ from juried.targets.http import HttpTarget, TargetConfigError
 from juried.transport import TransportFailure
 
 TargetFactory = Callable[[httpx.AsyncClient], Target]
+# The "model" recorded on a verdict that a deterministic check decided.
+CHECKS_MODEL = "checks"
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ class RunRecord:
     verdict: Verdict | None = None
     votes: list[Verdict] = field(default_factory=list)
     fresh_votes: list[Usage] = field(default_factory=list)
+    # Every deterministic check that ran on the response, passed or not.
+    checks: list[CheckOutcome] = field(default_factory=list)
     # Live turns before the final message: the user messages from `turns` and the feature's
     # replies to them, in order.
     transcript: list[Turn] = field(default_factory=list)
@@ -94,6 +99,15 @@ class RunRecord:
     @property
     def errored(self) -> bool:
         return self.error is not None or self.judge_error is not None
+
+    @property
+    def failed_checks(self) -> list[CheckOutcome]:
+        return failed(self.checks)
+
+    # A check failure is a verdict without a judge: the attempt failed and no call was made.
+    @property
+    def failed_by_checks(self) -> bool:
+        return self.verdict is not None and self.verdict.model == CHECKS_MODEL
 
     @property
     def usage(self) -> Usage:
@@ -134,6 +148,7 @@ class RunRecord:
             "judge_error": self.judge_error,
             "verdict": self.verdict.to_dict() if self.verdict else None,
             "votes": [vote.to_dict() for vote in self.votes],
+            "checks": [outcome.to_dict() for outcome in self.checks],
             "agreement": self.agreement,
             "usage": self.usage.to_dict(),
             "target_usage": self.target_usage.to_dict(),
@@ -271,6 +286,10 @@ class ScenarioResult:
         return sum(1 for run in self.runs if run.agreement is not None and run.agreement < 1.0)
 
     @property
+    def checks_failed(self) -> int:
+        return sum(1 for run in self.runs if run.failed_by_checks)
+
+    @property
     def latency(self) -> Latency:
         return Latency.of([run.response_ms for run in self.runs if run.response_ms is not None])
 
@@ -291,6 +310,7 @@ class ScenarioResult:
             "history": [turn.model_dump() for turn in self.scenario.history],
             "turns": list(self.scenario.turns),
             "expected": self.scenario.expected,
+            "checks": [check.model_dump(exclude_none=True) for check in self.scenario.checks],
             "tags": list(self.scenario.tags),
             "source": str(self.scenario.source) if self.scenario.source else None,
             "runs": self.total,
@@ -309,6 +329,7 @@ class ScenarioResult:
             "status": self.status,
             "judge_agreement": self.judge_agreement,
             "split_verdicts": self.split_verdicts,
+            "checks_failed": self.checks_failed,
             "usage": self.usage.to_dict(),
             "target_usage": self.target_usage.to_dict(),
             "latency": {
@@ -382,7 +403,7 @@ class Runner:
                     group.create_task(self._attempt(resources, scenario, criterion, attempt))
                     for attempt in range(1, runs + 1)
                 ]
-        except* TargetConfigError as failures:
+        except* (TargetConfigError, CheckError) as failures:
             raise failures.exceptions[0] from None
         records = [task.result() for task in tasks]
         return ScenarioResult(scenario, criterion, gate, records)
@@ -413,6 +434,21 @@ class Runner:
             else:
                 record.response = reply
         assert record.response is not None
+
+        # Checks run locally first; a failed one is the verdict, and the judge is not called.
+        final_latency = record.requests[-1].elapsed_ms if record.requests else None
+        record.checks = run_checks(
+            scenario,
+            record.response,
+            final_latency,
+            self.config.root,
+            self.config.judge.strict_quotes,
+        )
+        if record.failed_checks:
+            reason = "; ".join(outcome.describe() for outcome in record.failed_checks)
+            record.verdict = Verdict(False, reason, CHECKS_MODEL, Verdict.now())
+            record.elapsed_ms = (time.perf_counter() - started) * 1000
+            return record
 
         try:
             votes = await asyncio.gather(

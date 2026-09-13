@@ -149,6 +149,14 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_strict_quotes_defaults_off(tmp_path: Path) -> None:
+    assert parse_config(MINIMAL, tmp_path, environ={}).judge.strict_quotes is False
+    on = parse_config(MINIMAL + "[judge]\nstrict_quotes = true\n", tmp_path, environ={})
+    assert on.judge.strict_quotes is True
+    env = parse_config(MINIMAL, tmp_path, environ={"JURIED_JUDGE_STRICT_QUOTES": "true"})
+    assert env.judge.strict_quotes is True
+
+
 def test_api_key_env_follows_base_url_rules(tmp_path: Path) -> None:
     plain = parse_config(MINIMAL, tmp_path, environ={})
     assert plain.judge.api_key_env is None

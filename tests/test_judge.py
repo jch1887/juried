@@ -41,6 +41,25 @@ def test_stub_judge_checks_quoted_phrases() -> None:
     assert not empty.passed
 
 
+def test_stub_normalises_quoted_phrases_unless_strict() -> None:
+    lenient = StubProvider()
+    strict = StubProvider(strict_quotes=True)
+    span = Scenario(
+        id="hours-span",
+        criterion="hours",
+        name="Asks hours",
+        message="When are you open?",
+        expected='Gives the "9am to 5pm" span on "week-days".',
+    )
+    spaced = "Open 9am  to 5pm on week days."
+    assert run(lenient.judge(CRITERION, span, spaced)).passed
+    assert not run(strict.judge(CRITERION, span, spaced)).passed
+    assert "'9am to 5pm'" in run(strict.judge(CRITERION, span, spaced)).reason
+    assert run(strict.judge(CRITERION, span, "Open 9AM to 5pm on week-days.")).passed
+    named = build_provider("stub", "x", strict_quotes=True)
+    assert isinstance(named, StubProvider) and named.strict_quotes
+
+
 def test_quoted_phrases_are_verbatim_and_unquoted_text_is_not() -> None:
     stub = StubProvider()
     scenario = Scenario(

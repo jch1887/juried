@@ -23,7 +23,8 @@ pip install juried
 ```
 
 Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
-environment. juried never reads a secret from disk and does not load `.env` itself.
+environment, or the variable `api_key_env` names. juried never reads a secret from disk and
+does not load `.env` itself.
 
 ## The commands
 
@@ -69,11 +70,26 @@ concurrency = 4    # requests in flight to the target, across all scenarios
 provider = "anthropic"    # anthropic, openai or stub
 model = "claude-sonnet-5" # pinned and recorded with every verdict
 concurrency = 4           # requests in flight to the judge, across all scenarios
+# base_url = "http://127.0.0.1:11434/v1"   # any OpenAI compatible endpoint, with provider = "openai"
+# api_key_env = "OLLAMA_API_KEY"           # variable holding the key, when not the provider's own
 ```
 
 Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
 the parameter, so the example leaves it out; when it is unset nothing is sent and the report
 says so.
+
+`base_url` points a provider at another host. With `provider = "openai"` any OpenAI
+compatible endpoint works as judge and generator without a new provider: Ollama at
+`http://127.0.0.1:11434/v1`, vLLM, LM Studio, OpenRouter, or Azure OpenAI with its
+deployment path. `api_key_env` names the environment variable holding the key when it is
+not `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, so a second account or a proxy can have its
+own; juried still reads nothing but the process environment, and Ollama ignores the key
+but the variable must hold something. Against a custom `base_url` the openai provider sends
+`max_tokens` rather than `max_completion_tokens`, which the compatible servers know, and
+asks for a JSON schema response as it does of OpenAI; Ollama, vLLM and LM Studio honour
+that, and a server that does not fails with the HTTP error it returns. The pinned judge
+prompt and the verdict cache are unchanged by the host: a local model is a judge like any
+other and needs calibrating like any other.
 
 A body value that is exactly `"{{message}}"` or `"{{history}}"` becomes the scenario
 message or the earlier turns as a list of `{role, content}` objects, keeping its type.
@@ -84,10 +100,11 @@ the variable is unset. `response_path` is a dotted path into the JSON reply, and
 `usage_input_path` and `usage_output_path`, which name the token counts in it if the target
 reports them; see "What a run costs".
 
-`[generate]` takes `provider`, `model`, `temperature`, `base_url`, `scenarios_per_criterion`
-and `max_tokens`. `provider` and `model` default to the judge's. `temperature` does not: the
-judge's is chosen for consistent verdicts and generation wants variety, so it is unset
-unless you set it under `[generate]`.
+`[generate]` takes `provider`, `model`, `temperature`, `base_url`, `api_key_env`,
+`scenarios_per_criterion` and `max_tokens`. `provider` and `model` default to the judge's,
+and so do `base_url` and `api_key_env` while the provider is the same. `temperature` does
+not: the judge's is chosen for consistent verdicts and generation wants variety, so it is
+unset unless you set it under `[generate]`.
 
 ## Criteria and scenarios
 
@@ -472,9 +489,10 @@ make check      # ruff, mypy and pytest
 The same target runs in CI on every pull request. The `Live provider contract` badge at
 the top of this file shows the latest result of the live workflow, which runs weekly and
 on demand and exercises both the Anthropic and OpenAI clients with one judge call and one
-generate call each. Every run uploads the pytest output as an artifact, so a green run can
-be checked to have tested both providers rather than skipped them; in this repository a
-skipped provider fails the run. See CONTRIBUTING.md for how to run it locally, and for
+generate call each, and sends one judge call to a local Ollama through the OpenAI client
+when the runner has one, skipping with a notice when it does not. Every run uploads the
+pytest output as an artifact, so a green run can be checked to have tested both providers
+rather than skipped them; in this repository a skipped provider fails the run. See CONTRIBUTING.md for how to run it locally, and for
 the development install. Changes are recorded in `CHANGELOG.md` and the release steps in
 `docs/releasing.md`.
 

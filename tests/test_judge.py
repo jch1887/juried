@@ -165,6 +165,70 @@ def test_build_provider() -> None:
     assert isinstance(build_provider("stub", "x"), StubProvider)
     assert isinstance(build_provider("anthropic", "claude-sonnet-5"), AnthropicProvider)
     assert isinstance(build_provider("openai", "gpt-4.1"), OpenAIProvider)
+    openai = build_provider("openai", "gpt-4.1")
+    anthropic = build_provider("anthropic", "m")
+    assert isinstance(openai, OpenAIProvider) and openai.api_key_env == "OPENAI_API_KEY"
+    assert isinstance(anthropic, AnthropicProvider)
+    assert anthropic.api_key_env == "ANTHROPIC_API_KEY"
+    named = build_provider("openai", "m", None, 256, "http://h/v1", "OTHER_KEY")
+    assert isinstance(named, OpenAIProvider)
+    assert (named.base_url, named.api_key_env) == ("http://h/v1", "OTHER_KEY")
+
+
+def test_openai_compatible_endpoint_uses_named_key_and_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama")
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"pass": true, "reason": "ok"}'}}],
+                "usage": {"prompt_tokens": 90, "completion_tokens": 9},
+            },
+        )
+
+    provider = OpenAIProvider(
+        "llama3.2", None, 256, base_url="http://127.0.0.1:11434/v1/", api_key_env="OLLAMA_API_KEY"
+    )
+    provider._client = mock_client(handler)
+    verdict = run(provider.judge(CRITERION, SCENARIO, "9am to 5pm"))
+    assert verdict.passed and verdict.usage == Usage(90, 9, 1)
+    assert seen["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+    assert seen["auth"] == "Bearer ollama"
+    # Compatible servers know max_tokens; only OpenAI itself wants max_completion_tokens.
+    assert seen["body"]["max_tokens"] == 256
+    assert "max_completion_tokens" not in seen["body"]
+    assert seen["body"]["response_format"]["type"] == "json_schema"
+    assert not provider.is_openai
+    assert OpenAIProvider("gpt-4.1", None, 256).is_openai
+    assert OpenAIProvider("gpt-4.1", None, 256, base_url="https://api.openai.com/v1/").is_openai
+    monkeypatch.delenv("OLLAMA_API_KEY")
+    with pytest.raises(ProviderError, match="OLLAMA_API_KEY"):
+        run(provider.judge(CRITERION, SCENARIO, "x"))
+
+
+def test_anthropic_reads_the_named_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("SECOND_ANTHROPIC_KEY", "key-2")
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["key"] = request.headers["x-api-key"]
+        return httpx.Response(
+            200, json={"content": [{"type": "text", "text": '{"pass": true, "reason": "ok"}'}]}
+        )
+
+    provider = AnthropicProvider("claude-sonnet-5", None, 256, api_key_env="SECOND_ANTHROPIC_KEY")
+    provider._client = mock_client(handler)
+    assert run(provider.judge(CRITERION, SCENARIO, "9am 5pm")).passed
+    assert seen["key"] == "key-2"
 
 
 def mock_client(handler: Any) -> httpx.AsyncClient:

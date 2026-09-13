@@ -29,13 +29,19 @@ JURIED_LIVE=1 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... pytest -m live -v
 A missing key skips that provider, so with one key set you exercise one provider. The
 default models are `claude-haiku-4-5` and `gpt-4.1-mini`; override them with
 `JURIED_LIVE_ANTHROPIC_MODEL` and `JURIED_LIVE_OPENAI_MODEL`. A run costs well under a
-penny.
+penny. One more test sends a judge request through the OpenAI client to a local Ollama,
+standing in for every OpenAI compatible endpoint; it looks at
+`JURIED_LIVE_OLLAMA_BASE_URL` (default `http://127.0.0.1:11434/v1`) for a model named by
+`JURIED_LIVE_OLLAMA_MODEL` (default `llama3.2`) and skips, with the reason in the log, when
+neither is there.
 
 The `Live provider contract` workflow runs the same command weekly and on demand from the
 Actions tab. It needs the repository secrets `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`
 (a missing one skips that provider, so check the log rather than the tick) and reads the
-optional repository variables `JURIED_LIVE_ANTHROPIC_MODEL` and
-`JURIED_LIVE_OPENAI_MODEL`. It uploads the pytest output as the `live-pytest-output`
+optional repository variables `JURIED_LIVE_ANTHROPIC_MODEL`, `JURIED_LIVE_OPENAI_MODEL`,
+`JURIED_LIVE_OLLAMA_BASE_URL` and `JURIED_LIVE_OLLAMA_MODEL`. GitHub's hosted runners have
+no Ollama, so the workflow prints a notice that the compatible endpoint test was skipped;
+a self hosted runner with Ollama and the model pulled exercises it. It uploads the pytest output as the `live-pytest-output`
 artifact on every run, pass or fail, so a green run can be inspected for which providers
 actually ran. Run it before a release and after any change to a provider module.
 

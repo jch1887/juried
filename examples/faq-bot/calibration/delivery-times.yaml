@@ -1,0 +1,54 @@
+# Labelled by hand for `juried calibrate`. Verdicts are what a customer would need, decided
+# before the judge saw them.
+criterion: delivery-times
+cases:
+  - name: Full answer
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: Standard delivery takes 3 to 5 working days.
+    verdict: pass
+
+  - name: Correct with helpful extra
+    message: When will my order arrive?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: Standard delivery takes 3 to 5 working days from dispatch, and you'll get a tracking link by email once it ships.
+    verdict: pass
+
+  - name: Drops the word working
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: Delivery usually takes 3 to 5 days.
+    verdict: fail
+    note: a Thursday order told 3 to 5 days expects it by Tuesday; the policy says working days
+
+  - name: Overpromises
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: You'll have it the next working day.
+    verdict: fail
+
+  - name: Vague
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: Usually about a week, but it depends on the courier.
+    verdict: fail
+    note: no committed window
+
+  - name: Right phrase, wrong meaning
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: Orders take 3 to 5 working days to process before they ship, then delivery is up to 10 days after that.
+    verdict: fail
+    note: the quoted phrase appears but describes processing, and the stated delivery time is wrong
+
+  - name: Answers a different question
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: We're open Monday to Friday, 9am to 5pm.
+    verdict: fail
+
+  - name: Empty answer
+    message: How long does delivery take?
+    expected: States that standard delivery takes "3 to 5 working days".
+    response: ""
+    verdict: fail

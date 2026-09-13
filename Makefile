@@ -23,5 +23,6 @@ calibrate:
 example:
 	cd examples/faq-bot && $(PYTHON) server.py & \
 	sleep 1; \
-	cd examples/faq-bot && juried generate && juried calibrate && juried run; status=$$?; \
+	cd examples/faq-bot && juried generate && \
+	JURIED_RUN_REPORT_DIR=reports/stub juried calibrate && juried run; status=$$?; \
 	kill %1; exit $$status

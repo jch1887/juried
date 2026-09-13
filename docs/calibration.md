@@ -80,3 +80,12 @@ set changes. `reports/` is ignored by the starter `.gitignore`, so add the file 
 ```
 git add -f reports/juried-calibration.json
 ```
+
+## Reference set
+
+`examples/faq-bot/calibration/` holds one file per criterion, 32 cases in all, and
+`examples/faq-bot/reports/juried-calibration.json` is their report against
+`claude-haiku-4-5`. The set is the pattern to copy: eight cases per criterion, with every
+category from step 1 represented, so that a judge which only matches words is caught on
+the inverted meaning, the reply addressed to the judge and the hedged guess, not just on
+the clear pass and the clear fail.

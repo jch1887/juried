@@ -281,8 +281,9 @@ model, temperature or prompt changes.
 `juried init` writes `calibration/example.yaml` with two placeholder cases; replace them
 with real responses from your feature, labelled by your team. Until a calibration report
 exists under `reports/`, every run with a real judge ends with a warning that its verdicts
-have not been checked against human labels. The cases shipped with the example project are
-labelled against the stub, and show only that the stub is a substring matcher.
+have not been checked against human labels. For a worked set covering the hard categories
+(inverted meaning, talking to the judge, hedged guesses, wrong contact details, empty and
+off topic answers) see `examples/faq-bot/calibration/`.
 
 ## What a run costs
 
@@ -349,7 +350,7 @@ above the tables is the coverage check: one criterion had no scenarios in that r
 cd examples/faq-bot
 python server.py &       # deterministic fake FAQ bot on port 8765
 juried generate          # uses the stub provider from juried.toml
-juried calibrate         # the stub against calibration/refunds.yaml
+JURIED_RUN_REPORT_DIR=reports/stub juried calibrate   # the stub against the 32 cases in calibration/
 juried run               # 13 scenarios, one fails its gate on purpose
 cp reports/juried-report.json reports/baseline.json
 juried run               # sample the bot again
@@ -366,13 +367,14 @@ mechanics of runs, gates and reports, and says nothing about how an LLM judge be
 One hand written refund scenario fails its gate on purpose, because the fake bot drops
 the 14 day detail every fourth time, which is the kind of flakiness juried exists to catch.
 
-`juried calibrate` in the same directory runs the stub against the labelled responses in
-`calibration/refunds.yaml` and reports where it disagrees with the human labels. The stub
-gets the "right words, wrong answer" cases wrong, which is the point: calibrate before you
-trust any judge, and swap `provider` for a real one when you have a key. The shipped
-calibration set is labelled against the stub and demonstrates the file format only; it says
-nothing about any real judge. `docs/calibration.md` explains how to build one from real
-responses and commit the resulting report.
+`juried calibrate` in the same directory runs the stub against the 32 labelled responses
+under `calibration/`, with its report sent to `reports/stub/` so that it does not overwrite
+the committed one. The stub agrees with 24 of the 32 labels and passes the eight it should
+fail, which is the point: calibrate before you trust any judge. The same 32 cases were
+checked against `claude-haiku-4-5` on 13 September 2026 and it agreed with every label; the
+report is at
+[examples/faq-bot/reports/juried-calibration.json](examples/faq-bot/reports/juried-calibration.json).
+`docs/calibration.md` explains how to build a set of your own from real responses.
 
 ## Roadmap
 

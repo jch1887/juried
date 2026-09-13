@@ -7,6 +7,12 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Added
+
+- A calibration set of 32 labelled responses for the example project, eight per criterion,
+  and its report against `claude-haiku-4-5`, which agreed with every label. The example's
+  stub calibrate run now writes to `reports/stub/` so it does not overwrite that report.
+
 ### Fixed
 
 - An empty `judge.model` or `generate.model`, whether from `juried.toml` or an empty

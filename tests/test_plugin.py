@@ -83,6 +83,8 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
             r"2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
             r"judge usage: 0 input \+ 0 output tokens over 0 call\(s\), estimated \$0.0000 at "
             r"list prices of 20",
+            r"target usage: 8 requests, cost unknown \(set \[target\] input_price/output_price "
+            r"or cost_per_request\)",
             r"report: .*juried-report.html",
         ]
     )
@@ -93,6 +95,53 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     assert not (pytester.path / ".juried" / "cache" / "responses").exists()
     assert "replayed from" not in result.stdout.str()
     assert "threshold" not in result.stdout.str()
+    assert "estimated run cost" not in result.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["summary"]["usage"]["target"]["requests"] == 8
+    assert report["summary"]["usage"]["total_estimate_usd"] is None
+
+
+def test_target_usage_is_priced_per_request_or_by_tokens(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace("retries = 0", "retries = 0\ncost_per_request = 0.01")
+    )
+    flat = pytester.runpytest("-k", "hours")
+    flat.assert_outcomes(passed=1)
+    flat.stdout.fnmatch_lines(
+        [
+            "target usage: 4 requests, estimated $0.0400 at $0.0100 each",
+            "estimated run cost: $0.0400 (judge $0.0000 + target $0.0400)",
+        ]
+    )
+    # The fake bot echoes the request under "echo", which serves as a token count here.
+    (pytester.path / "juried.toml").write_text(
+        text.replace(
+            "retries = 0",
+            'retries = 0\nusage_input_path = "echo.tokens"\nusage_output_path = "echo.tokens"\n'
+            "input_price = 1\noutput_price = 1",
+        )
+    )
+    (pytester.path / "juried.toml").write_text(
+        (pytester.path / "juried.toml")
+        .read_text()
+        .replace("[run]", '[target.body]\nmessage = "{{message}}"\ntokens = 250\n\n[run]')
+    )
+    tokens = pytester.runpytest("-k", "hours")
+    tokens.assert_outcomes(passed=1)
+    tokens.stdout.fnmatch_lines(
+        [
+            "target usage: 4 requests, 1,000 input + 1,000 output tokens, estimated $0.0020 at "
+            "configured prices",
+            "estimated run cost: $0.0020 (judge $0.0000 + target $0.0020)",
+        ]
+    )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["summary"]["usage"]["target"]["input_tokens"] == 1000
+    assert report["summary"]["usage"]["total_estimate_usd"] == pytest.approx(0.002)
 
 
 def test_keyword_and_marker_selection(pytester: pytest.Pytester, fake_bot_url: str) -> None:

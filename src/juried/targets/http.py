@@ -59,6 +59,16 @@ def extract_path(data: Any, path: str) -> Any:
     return current
 
 
+def extract_count(data: Any, path: str, key: str) -> int:
+    try:
+        value = extract_path(data, path)
+    except TargetConfigError as exc:
+        raise TargetConfigError(str(exc).replace("response_path", key, 1)) from None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TargetConfigError(f"{key} {path!r} did not select a number: {value!r}")
+    return int(value)
+
+
 def expand_env(value: Any, environ: Mapping[str, str]) -> Any:
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -125,4 +135,17 @@ class HttpTarget:
             raise TargetConfigError(
                 f"response_path {self.config.response_path!r} did not select a string: {text!r}"
             )
-        return TargetResponse(text, response.status_code, elapsed_ms, payload)
+        input_tokens = output_tokens = None
+        if self.config.usage_paths is not None:
+            input_path, output_path = self.config.usage_paths
+            input_tokens = extract_count(payload, input_path, "usage_input_path")
+            output_tokens = extract_count(payload, output_path, "usage_output_path")
+        return TargetResponse(
+            text,
+            response.status_code,
+            elapsed_ms,
+            payload,
+            len(response.content),
+            input_tokens,
+            output_tokens,
+        )

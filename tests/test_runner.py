@@ -53,7 +53,7 @@ class ScriptedTarget:
         reply = self.replies[index % len(self.replies)]
         if isinstance(reply, Exception):
             raise reply
-        return TargetResponse(reply, 200, 1.0)
+        return TargetResponse(reply, 200, 1.0, None, len(reply), 40, 15)
 
 
 class SplitProvider(StubProvider):
@@ -190,6 +190,28 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
     assert data["attempts"][1]["error"].startswith("HTTP 500")
     assert data["attempts"][1]["verdict"] is None
     assert data["attempts"][1]["response_ms"] is None
+    # Every send is a request, the failed one with its status and no tokens.
+    assert data["attempts"][1]["requests"] == [
+        {
+            "status_code": 500,
+            "elapsed_ms": data["attempts"][1]["requests"][0]["elapsed_ms"],
+            "bytes": 0,
+            "input_tokens": None,
+            "output_tokens": None,
+            "error": True,
+        }
+    ]
+    assert data["attempts"][0]["requests"][0]["status_code"] == 200
+    assert data["attempts"][0]["target_usage"] == {
+        "requests": 1,
+        "input_tokens": 40,
+        "output_tokens": 15,
+        "bytes": len("Open 9am."),
+        "counted": 1,
+    }
+    assert data["target_usage"]["requests"] == 3
+    assert data["target_usage"]["counted"] == 2
+    assert result.target_usage.input_tokens == 80
     assert data["latency"] == {"measured": 2, "mean_ms": 1.0, "max_ms": 1.0}
     assert data["judged"] == 2
     assert data["status"] == "incomplete"

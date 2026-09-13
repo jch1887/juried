@@ -182,6 +182,82 @@ def test_run_end_to_end_in_subprocess(pytester: pytest.Pytester, fake_bot_url: s
     assert (pytester.path / "out.xml").is_file()
 
 
+def test_dry_run_plans_without_sending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # An unroutable target: a dry run that sent anything would fail here.
+    (tmp_path / "juried.toml").write_text(
+        '[target]\nurl = "http://127.0.0.1:9/chat"\n[run]\nruns = 10\n'
+        '[judge]\nprovider = "openai"\nmodel = "gpt-4.1"\nvotes = 3\n'
+    )
+    (tmp_path / "acceptance.md").write_text(ACCEPTANCE)
+    scenarios = tmp_path / "scenarios"
+    scenarios.mkdir()
+    (scenarios / "hours.yaml").write_text(
+        "criterion: opening-hours\nscenarios:\n"
+        '  - name: Plain\n    message: hours?\n    expected: Mentions "9am".\n'
+        "  - name: Conversation\n    turns:\n      - hi\n      - are you open?\n"
+        '    message: and on sunday?\n    expected: Mentions "9am".\n    runs: 4\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--dry-run", "-k", "hours"]) == 0
+    out = capsys.readouterr().out
+    # 10 + 4 attempts; the conversation costs three requests each: 10 + 12 = 22 to the
+    # target, and 14 x 3 votes = 42 to the judge at 400 + 150 tokens: 42 x 550 tokens.
+    assert out.splitlines()[:4] == [
+        "juried: dry run, nothing is sent",
+        "2 scenarios under scenarios, 14 attempts in all, 1 with live turns",
+        "target: 22 requests (one per turn and final message per attempt), cost unknown (set "
+        "[target] input_price/output_price or cost_per_request)",
+        "judge: 42 calls (14 attempts x 3 votes) to gpt-4.1, estimated $0.0840 at 400 input + 150 "
+        "output tokens per call (assumed) and list prices of 2026-09",
+    ]
+    assert "estimated run cost: unknown until both sides are priced" in out
+    assert "note: assumed token counts are a placeholder" in out
+    assert "pytest arguments (-k hours) do not narrow it" in out
+    assert not (tmp_path / "reports").exists()
+
+    (tmp_path / "juried.toml").write_text(
+        (tmp_path / "juried.toml").read_text().replace("[run]", "cost_per_request = 0.01\n[run]")
+    )
+    assert main(["estimate"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        "target: 22 requests (one per turn and final message per attempt), estimated $0.22 "
+        "at $0.0100 each"
+    ) in out
+    assert "estimated run cost: $0.30 (judge $0.0840 + target $0.22)" in out
+    assert "do not narrow" not in out
+
+    # A previous report supplies per call averages in place of the assumption.
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "juried-report.json").write_text(
+        json.dumps(
+            {
+                "tool": "juried",
+                "summary": {
+                    "usage": {
+                        "judge": {"input_tokens": 2000, "output_tokens": 100, "calls": 2},
+                        "target": {
+                            "requests": 4,
+                            "input_tokens": 300,
+                            "output_tokens": 30,
+                            "counted": 3,
+                        },
+                    }
+                },
+            }
+        )
+    )
+    assert main(["estimate"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        "judge: 42 calls (14 attempts x 3 votes) to gpt-4.1, estimated $0.10 at 1000 input + "
+        "50 output tokens per call (the last report)"
+    ) in out
+    assert "assumed" not in out
+
+
 def test_missing_config_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -33,6 +33,24 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- The target side of a run is counted and priced. Every request to the endpoint is recorded
+  per attempt with its HTTP status, bytes and latency, and summed per scenario and per run.
+  New `[target]` keys: `usage_input_path` and `usage_output_path`, dotted paths to token
+  counts in the reply; `input_price` and `output_price` in US dollars per million tokens;
+  and `cost_per_request`, a flat price per call for a target that reports no tokens. The
+  summary always prints a `target usage:` line, with tokens and an estimate, a per request
+  estimate, or the request count and "cost unknown" with the keys to set, and an
+  `estimated run cost:` line whenever both sides have a figure.
+- `juried run --dry-run`, also `juried estimate`: collects every scenario, counts the
+  requests each side would get allowing for `turns` and `votes`, prices them from the
+  configured target prices and the judge price table, prints the plan and exits 0 without
+  sending anything. It assumes 400 input and 150 output tokens per call and says so, or
+  uses the averages from the last `reports/juried-report.json` when one exists.
+- The JSON report's `summary.usage` and each scenario's `usage` gain `judge`, `target` and
+  `total_estimate_usd` (null when either side is unknown); the existing flat keys are the
+  judge's figures and are kept. Attempts carry `target_usage` and a `requests` list, and
+  the report has a top level `target` entry with the URL template and prices. The HTML
+  spend tile shows both sides, and the report warns when the target's cost is unknown.
 - `juried run --misses N` and `JURIED_RUN_MISSES`, overriding `[run] misses`. A command
   line `--misses` or `--threshold` replaces the file's gate outright, so it cannot disagree
   with it.
@@ -44,6 +62,10 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Changed
 
+- The README's "What a run costs" starts from the fact that a run costs target calls plus
+  judge calls, shows both usage lines, and shows `--dry-run`. The example project's fake
+  bot now reports token counts and its `juried.toml` prices them, so the example shows a
+  target figure rather than only the stub judge's nil spend.
 - The README's "How a scenario passes" no longer needs a warning and a lookup table to
   explain the gate; the interval is described once under the report section.
 

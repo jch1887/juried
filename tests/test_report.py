@@ -2,11 +2,13 @@ import json
 from html.parser import HTMLParser
 from pathlib import Path
 
+import pytest
+
 from juried.config import Config, parse_config
 from juried.criteria import Criterion
 from juried.judge import Verdict
 from juried.report import build_report, render_html, write_reports
-from juried.runner import RunRecord, ScenarioResult
+from juried.runner import RunRecord, ScenarioResult, TargetRequest
 from juried.scenarios import Scenario, Turn
 from juried.stats import Gate
 
@@ -42,7 +44,15 @@ def results() -> list[ScenarioResult]:
             hours,
             HOURS,
             Gate(3, 0),
-            [RunRecord(i, "Open 9am to 5pm.", verdict=verdict(True, "ok")) for i in range(1, 4)],
+            [
+                RunRecord(
+                    i,
+                    "Open 9am to 5pm.",
+                    verdict=verdict(True, "ok"),
+                    requests=[TargetRequest(200, 5.0, 60, 100, 20)],
+                )
+                for i in range(1, 4)
+            ],
         ),
         ScenarioResult(
             refunds,
@@ -64,8 +74,15 @@ def results() -> list[ScenarioResult]:
     ]
 
 
-def config(tmp_path: Path) -> Config:
-    return parse_config('[target]\nurl = "http://bot/chat"\n[judge]\nprovider = "stub"\n', tmp_path)
+def config(tmp_path: Path, target_extra: str = "") -> Config:
+    return parse_config(
+        f'[target]\nurl = "http://bot/chat"\n{target_extra}[judge]\nprovider = "stub"\n', tmp_path
+    )
+
+
+PRICED = (
+    'usage_input_path = "u.in"\nusage_output_path = "u.out"\ninput_price = 1\noutput_price = 5\n'
+)
 
 
 def test_build_report_structure(tmp_path: Path) -> None:
@@ -89,10 +106,45 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "responses_from_cache": 0,
         "split_verdicts": 0,
         "judge_errors": 0,
-        "usage": {"input_tokens": 0, "output_tokens": 0, "calls": 0, "estimated_cost_usd": 0.0},
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "calls": 0,
+            "estimated_cost_usd": 0.0,
+            "judge": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "calls": 0,
+                "estimated_cost_usd": 0.0,
+            },
+            "target": {
+                "requests": 3,
+                "input_tokens": 300,
+                "output_tokens": 60,
+                "bytes": 180,
+                "counted": 3,
+                "estimated_cost_usd": None,
+            },
+            "total_estimate_usd": None,
+        },
         "criteria_without_scenarios": ["tone"],
     }
-    assert report["criteria"][0]["scenarios"][0]["usage"]["estimated_cost_usd"] == 0.0
+    assert report["target"] == {
+        "url": "http://bot/chat",
+        "prices_usd_per_million": None,
+        "cost_per_request": None,
+    }
+    hours_usage = report["criteria"][0]["scenarios"][0]["usage"]
+    assert hours_usage["estimated_cost_usd"] == 0.0
+    assert hours_usage["target"]["requests"] == 3
+    assert "target_usage" not in report["criteria"][0]["scenarios"][0]
+    assert report["criteria"][0]["scenarios"][0]["attempts"][0]["requests"][0]["bytes"] == 60
+    priced = build_report(config(tmp_path, PRICED), [HOURS], results()[:1])
+    assert priced["summary"]["usage"]["target"]["estimated_cost_usd"] == pytest.approx(0.0006)
+    assert priced["summary"]["usage"]["total_estimate_usd"] == pytest.approx(0.0006)
+    assert priced["target"]["prices_usd_per_million"] == [1.0, 5.0]
+    flat = build_report(config(tmp_path, "cost_per_request = 0.01\n"), [HOURS], results()[:1])
+    assert flat["summary"]["usage"]["target"]["estimated_cost_usd"] == pytest.approx(0.03)
     assert [c["id"] for c in report["criteria"]] == ["hours", "refunds", "tone"]
     hours = report["criteria"][0]
     assert hours["gates_passed"] == 1
@@ -168,9 +220,15 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "judge errors" in html
     assert "gates upheld" in html
     assert "temperature not set, one verdict per response" in html
-    assert "judge spend" in html
-    assert "$0.0000" in html
+    assert "estimated spend" in html
+    assert "<strong>$0.0000 + ?</strong>" in html
+    assert "judge $0.0000: 0 in / 0 out, 0 calls<br>target ?: 3 requests, 300 in / 60 out" in html
     assert "No list price is known" not in html
+    assert "The target's cost is unknown" in html
+    priced = render_html(build_report(config(tmp_path, PRICED), [HOURS], results()[:1]))
+    assert "<strong>$0.0006</strong>" in priced
+    assert "target $0.0006: 3 requests" in priced
+    assert "cost is unknown" not in priced
     assert "split verdicts" not in html
     assert '<th class="num">Gate needs</th>' in html
     assert '<th class="num">Interval</th>' in html

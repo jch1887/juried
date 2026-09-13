@@ -163,6 +163,38 @@ def test_prices_are_optional_but_paired(tmp_path: Path) -> None:
         parse_config(MINIMAL + "[judge]\ninput_price = 2\n", tmp_path, environ={})
 
 
+def test_target_pricing_keys_are_validated(tmp_path: Path) -> None:
+    plain = parse_config(MINIMAL, tmp_path, environ={}).target
+    assert plain.prices is None and plain.usage_paths is None and not plain.priced
+    priced = parse_config(
+        MINIMAL + 'usage_input_path = "usage.in"\nusage_output_path = "usage.out"\n'
+        "input_price = 2\noutput_price = 10\n",
+        tmp_path,
+        environ={},
+    ).target
+    assert priced.prices == (2.0, 10.0)
+    assert priced.usage_paths == ("usage.in", "usage.out")
+    assert priced.priced
+    flat = parse_config(MINIMAL, tmp_path, environ={"JURIED_TARGET_COST_PER_REQUEST": "0.01"})
+    assert flat.target.cost_per_request == 0.01
+    assert flat.target.priced
+    with pytest.raises(ConfigError, match=r"usage_input_path and target\.usage_output_path must"):
+        parse_config(MINIMAL + 'usage_input_path = "usage.in"\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"input_price and target\.output_price must be set"):
+        parse_config(MINIMAL + "input_price = 2\n", tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"need target\.usage_input_path"):
+        parse_config(MINIMAL + "input_price = 2\noutput_price = 10\n", tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"either target\.cost_per_request or"):
+        parse_config(
+            MINIMAL + 'usage_input_path = "a"\nusage_output_path = "b"\n'
+            "input_price = 2\noutput_price = 10\ncost_per_request = 0.1\n",
+            tmp_path,
+            environ={},
+        )
+    with pytest.raises(ConfigError, match="greater than or equal to 0"):
+        parse_config(MINIMAL + "cost_per_request = -1\n", tmp_path, environ={})
+
+
 def test_empty_model_names_are_rejected_before_any_request(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match=r"judge\.model must not be empty"):
         parse_config(MINIMAL + '[judge]\nmodel = ""\n', tmp_path, environ={})

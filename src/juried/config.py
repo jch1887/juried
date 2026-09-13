@@ -38,6 +38,51 @@ class TargetConfig(StrictModel):
     response_path: str = "reply"
     timeout_seconds: float = Field(default=30.0, gt=0)
     retries: int = Field(default=3, ge=0)
+    # Dotted paths to token counts in the reply, when the target reports them.
+    usage_input_path: str | None = None
+    usage_output_path: str | None = None
+    # US dollars per million tokens, or a flat price per call for a target that reports
+    # no tokens. Either prices the target side of a run; neither leaves it unknown.
+    input_price: float | None = Field(default=None, ge=0.0)
+    output_price: float | None = Field(default=None, ge=0.0)
+    cost_per_request: float | None = Field(default=None, ge=0.0)
+
+    @property
+    def prices(self) -> tuple[float, float] | None:
+        if self.input_price is None or self.output_price is None:
+            return None
+        return (self.input_price, self.output_price)
+
+    @property
+    def usage_paths(self) -> tuple[str, str] | None:
+        if self.usage_input_path is None or self.usage_output_path is None:
+            return None
+        return (self.usage_input_path, self.usage_output_path)
+
+    @property
+    def priced(self) -> bool:
+        return self.prices is not None or self.cost_per_request is not None
+
+    @model_validator(mode="after")
+    def pricing_is_consistent(self) -> TargetConfig:
+        if (self.usage_input_path is None) != (self.usage_output_path is None):
+            raise ValueError(
+                "target.usage_input_path and target.usage_output_path must be set together"
+            )
+        if (self.input_price is None) != (self.output_price is None):
+            raise ValueError("target.input_price and target.output_price must be set together")
+        if self.prices is not None and self.usage_paths is None:
+            raise ValueError(
+                "target.input_price and target.output_price need target.usage_input_path and "
+                "target.usage_output_path, the paths to the token counts in the reply; for a "
+                "target that reports no tokens set target.cost_per_request instead"
+            )
+        if self.prices is not None and self.cost_per_request is not None:
+            raise ValueError(
+                "set either target.cost_per_request or target.input_price and "
+                "target.output_price, not both"
+            )
+        return self
 
 
 class CriteriaConfig(StrictModel):

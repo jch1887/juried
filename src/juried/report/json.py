@@ -9,7 +9,7 @@ from typing import Any
 from juried import __version__
 from juried.config import Config
 from juried.criteria import Criterion
-from juried.pricing import Usage, estimate_usd, prices_for
+from juried.pricing import TargetUsage, Usage, estimate_usd, prices_for, target_estimate_usd
 from juried.runner import ScenarioResult
 
 # Bumped whenever a field in the JSON report or the calibration report changes meaning or
@@ -21,9 +21,30 @@ def usage_entry(usage: Usage, prices: tuple[float, float] | None) -> dict[str, A
     return {**usage.to_dict(), "estimated_cost_usd": estimate_usd(usage, prices)}
 
 
-def scenario_entry(result: ScenarioResult, prices: tuple[float, float] | None) -> dict[str, Any]:
+# The flat keys are the judge's figures, as reports before 0.3 wrote them, and are kept so
+# nothing reading them breaks; `judge` repeats them beside `target`.
+def usage_entries(
+    judge: Usage, target: TargetUsage, config: Config, prices: tuple[float, float] | None
+) -> dict[str, Any]:
+    judge_entry = usage_entry(judge, prices)
+    target_cost = target_estimate_usd(target, config.target.prices, config.target.cost_per_request)
+    total = None
+    if judge_entry["estimated_cost_usd"] is not None and target_cost is not None:
+        total = judge_entry["estimated_cost_usd"] + target_cost
+    return {
+        **judge_entry,
+        "judge": judge_entry,
+        "target": {**target.to_dict(), "estimated_cost_usd": target_cost},
+        "total_estimate_usd": total,
+    }
+
+
+def scenario_entry(
+    result: ScenarioResult, config: Config, prices: tuple[float, float] | None
+) -> dict[str, Any]:
     entry = result.to_dict()
-    entry["usage"] = usage_entry(result.usage, prices)
+    entry["usage"] = usage_entries(result.usage, result.target_usage, config, prices)
+    del entry["target_usage"]
     entry["failures"] = [
         {
             "attempt": run.attempt,
@@ -56,7 +77,7 @@ def build_report(
     criteria_entries = []
     for criterion_id, group in by_criterion.items():
         criterion = known[criterion_id]
-        scenarios = [scenario_entry(result, prices) for result in group]
+        scenarios = [scenario_entry(result, config, prices) for result in group]
         criteria_entries.append(
             {
                 "id": criterion.id,
@@ -83,6 +104,13 @@ def build_report(
             "votes": config.judge.votes,
             "prices_usd_per_million": None if prices is None else list(prices),
         },
+        "target": {
+            "url": config.target.url,
+            "prices_usd_per_million": (
+                None if config.target.prices is None else list(config.target.prices)
+            ),
+            "cost_per_request": config.target.cost_per_request,
+        },
         "defaults": {
             "runs": gate.runs,
             "misses": gate.misses,
@@ -99,7 +127,12 @@ def build_report(
             "responses_from_cache": sum(r.responses_from_cache for r in results),
             "split_verdicts": sum(r.split_verdicts for r in results),
             "judge_errors": sum(r.judge_errors for r in results),
-            "usage": usage_entry(sum((r.usage for r in results), Usage()), prices),
+            "usage": usage_entries(
+                sum((r.usage for r in results), Usage()),
+                sum((r.target_usage for r in results), TargetUsage()),
+                config,
+                prices,
+            ),
             "criteria_without_scenarios": [
                 entry["id"] for entry in criteria_entries if not entry["scenarios"]
             ],

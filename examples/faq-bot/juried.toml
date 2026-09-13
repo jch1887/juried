@@ -2,6 +2,12 @@
 url = "http://127.0.0.1:8765/chat"
 body = { message = "{{message}}", history = "{{history}}" }
 response_path = "reply"
+# The fake bot reports token counts (words, roughly) and these prices are made up, so the
+# target side of the run shows a figure. Drop them to see the "cost unknown" line.
+usage_input_path = "usage.prompt_tokens"
+usage_output_path = "usage.completion_tokens"
+input_price = 1.0
+output_price = 5.0
 
 [run]
 runs = 10

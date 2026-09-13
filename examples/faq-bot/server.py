@@ -37,7 +37,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         message = str(payload.get("message", "")).lower()
         history = payload.get("history") or []
-        self.reply(200, {"reply": answer(message, history)})
+        text = answer(message, history)
+        # Token counts in the shape an OpenAI compatible endpoint uses, so the example can
+        # show juried pricing the target side; a word count stands in for a tokeniser.
+        prompt_tokens = len(message.split()) + sum(
+            len(str(turn.get("content", "")).split()) for turn in history
+        )
+        usage = {"prompt_tokens": prompt_tokens, "completion_tokens": len(text.split())}
+        self.reply(200, {"reply": text, "usage": usage})
 
     def reply(self, status: int, body: dict[str, Any]) -> None:
         data = json.dumps(body).encode("utf-8")

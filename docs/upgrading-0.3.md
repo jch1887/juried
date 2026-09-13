@@ -58,6 +58,26 @@ What changes without any edit:
 - `juried run --threshold` still works but `--misses` is the flag to use. Either flag
   replaces the file's gate outright.
 
+## Target usage in reports
+
+`summary.usage` and each scenario's `usage` gain three keys: `judge`, `target` and
+`total_estimate_usd`. The flat keys that were there before (`input_tokens`,
+`output_tokens`, `calls`, `estimated_cost_usd`) are the judge's figures and stay, so
+anything reading them keeps working; `usage.judge` repeats them. The target side is
+unpriced until `[target]` names either token paths with prices or `cost_per_request`:
+
+```diff
+ [target]
+ url = "https://staging.example.com/api/chat"
+ response_path = "choices.0.message.content"
++usage_input_path = "usage.prompt_tokens"
++usage_output_path = "usage.completion_tokens"
++input_price = 2.0
++output_price = 10.0
+```
+
+`juried run --dry-run` prints what a run would cost before anything is sent.
+
 ## Reports and JUnit
 
 - JSON: scenario entries and `defaults` gain `misses`. `required_passes` is always an

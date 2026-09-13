@@ -25,10 +25,12 @@ from juried.compare import (
 )
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, load_criteria
+from juried.estimate import describe_plan, load_previous_report, plan_run
 from juried.generate import generate_scenarios
 from juried.judge import ProviderError, build_provider
 from juried.pricing import describe_usage
-from juried.scenarios import ScenarioError
+from juried.report import JSON_NAME
+from juried.scenarios import ScenarioError, load_scenarios
 from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
 
@@ -47,6 +49,15 @@ body = { message = "{{message}}", history = "{{history}}" }
 # Dotted path to the reply text in the JSON response, e.g. "choices.0.message.content".
 response_path = "reply"
 timeout_seconds = 30
+# A run costs target calls as well as judge calls. To price the target side, name the
+# paths to the token counts in its reply and the prices in US dollars per million tokens,
+# or set a flat price per call for a target that reports no tokens. Without either the
+# run reports the request count and says the cost is unknown.
+# usage_input_path = "usage.prompt_tokens"
+# usage_output_path = "usage.completion_tokens"
+# input_price = 2.0
+# output_price = 10.0
+# cost_per_request = 0.002
 
 [criteria]
 file = "acceptance.md"
@@ -166,6 +177,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit with status 1 when the judge agrees with fewer labels than this fraction",
     )
 
+    estimate = commands.add_parser(
+        "estimate", help="print what a run would send and cost, without sending anything"
+    )
+    estimate.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
+
     compare = commands.add_parser(
         "compare", help="compare two JSON reports and flag scenarios that got worse"
     )
@@ -196,6 +212,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-responses",
         action="store_true",
         help="replay responses from .juried/cache/responses instead of sampling the feature",
+    )
+    run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the planned requests and estimated cost, then exit without sending",
     )
     run.epilog = (
         "Unrecognised arguments are passed to pytest, e.g. -k refunds -x --junitxml=out.xml"
@@ -310,6 +331,25 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     return 0
 
 
+def command_estimate(explicit: str | None, extra: Sequence[str] = ()) -> int:
+    _, config = locate_config(explicit)
+    known = {criterion.id for criterion in load_criteria(config.criteria_path)}
+    scenarios = load_scenarios(config.scenarios_path)
+    unknown = sorted({s.criterion for s in scenarios} - known)
+    if unknown:
+        raise ScenarioError(f"scenarios refer to unknown criteria: {', '.join(unknown)}")
+    previous = load_previous_report(config.report_path / JSON_NAME)
+    plan = plan_run(config, scenarios, previous)
+    for line in describe_plan(plan, config):
+        print(line)
+    if extra:
+        print(
+            f"note: a dry run plans every scenario under {config.criteria.scenarios_dir}; "
+            f"pytest arguments ({' '.join(extra)}) do not narrow it"
+        )
+    return 0
+
+
 def command_compare(old: str, new: str, tolerance: float, json_path: str | None) -> int:
     old_path, new_path = Path(old), Path(new)
     old_report, new_report = load_report(old_path), load_report(new_path)
@@ -376,6 +416,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args, extra = parser.parse_known_args(argv)
     if extra and args.command != "run":
         parser.error(f"unrecognised arguments: {' '.join(extra)}")
+    if args.command == "run" and args.dry_run:
+        args.command = "estimate"
     try:
         if args.command == "init":
             return command_init(Path(args.dir), args.force)
@@ -383,6 +425,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_generate(args.config, args.criterion, args.force)
         if args.command == "calibrate":
             return command_calibrate(args.config, args.min_accuracy)
+        if args.command == "estimate":
+            return command_estimate(args.config, extra)
         if args.command == "compare":
             return command_compare(args.old, args.new, args.tolerance, args.json)
         return command_run(

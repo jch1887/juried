@@ -13,6 +13,10 @@ class TargetResponse:
     status_code: int
     elapsed_ms: float
     raw: Any = None
+    bytes: int = 0
+    # Token counts from the reply, when [target] names the paths to them.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class Target(Protocol):

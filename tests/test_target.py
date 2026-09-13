@@ -85,12 +85,15 @@ def make_target(
     retries: int = 2,
     response_path: str = "reply",
     environ: dict[str, str] | None = None,
+    usage_paths: tuple[str, str] | None = None,
 ) -> tuple[HttpTarget, httpx.AsyncClient]:
     config = TargetConfig(
         url="http://bot.test/chat",
         headers={"X-Key": "${KEY}"},
         response_path=response_path,
         retries=retries,
+        usage_input_path=None if usage_paths is None else usage_paths[0],
+        usage_output_path=None if usage_paths is None else usage_paths[1],
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return HttpTarget(config, client, environ=environ or {"KEY": "secret"}), client
@@ -113,8 +116,33 @@ def test_send_success_and_header_expansion() -> None:
     assert response.text == "hello there"
     assert response.status_code == 200
     assert response.elapsed_ms >= 0
+    assert response.bytes == len(json.dumps({"reply": "hello there"}, separators=(",", ":")))
+    assert response.input_tokens is None and response.output_tokens is None
     assert seen["headers"]["x-key"] == "secret"
     assert seen["body"] == {"message": "hi", "history": [{"role": "user", "content": "earlier"}]}
+
+
+def test_token_counts_are_read_from_usage_paths() -> None:
+    payload = {"choices": [{"message": {"content": "hi"}}], "usage": {"in": 41, "out": 7.0}}
+    target, _ = make_target(
+        lambda request: httpx.Response(200, json=payload),
+        response_path="choices.0.message.content",
+        usage_paths=("usage.in", "usage.out"),
+    )
+    response = run(target.send("hi", []))
+    assert (response.input_tokens, response.output_tokens) == (41, 7)
+    missing, _ = make_target(
+        lambda request: httpx.Response(200, json={"reply": "x", "usage": {"in": 1}}),
+        usage_paths=("usage.in", "usage.out"),
+    )
+    with pytest.raises(TargetConfigError, match=r"usage_output_path 'usage\.out': key 'out'"):
+        run(missing.send("hi", []))
+    wrong, _ = make_target(
+        lambda request: httpx.Response(200, json={"reply": "x", "usage": {"in": "41", "out": 1}}),
+        usage_paths=("usage.in", "usage.out"),
+    )
+    with pytest.raises(TargetConfigError, match=r"usage_input_path 'usage\.in' did not select"):
+        run(wrong.send("hi", []))
 
 
 def test_env_expands_in_url_and_body_but_not_fingerprint() -> None:

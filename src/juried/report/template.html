@@ -65,10 +65,15 @@
   {% if report.judge.votes > 1 %}
   <div><strong class="{{ 'warn' if report.summary.split_verdicts else '' }}">{{ report.summary.split_verdicts }}</strong>split verdicts</div>
   {% endif %}
-  <div><strong>{% if report.summary.usage.estimated_cost_usd is none %}?{% else %}${{ '%.4f' | format(report.summary.usage.estimated_cost_usd) }}{% endif %}</strong>judge spend<br><span class="meta">{{ report.summary.usage.input_tokens }} in / {{ report.summary.usage.output_tokens }} out, {{ report.summary.usage.calls }} calls</span></div>
+  {% set judge_usage = report.summary.usage.judge %}
+  {% set target_usage = report.summary.usage.target %}
+  <div><strong>{% if report.summary.usage.total_estimate_usd is not none %}${{ '%.4f' | format(report.summary.usage.total_estimate_usd) }}{% elif judge_usage.estimated_cost_usd is not none %}${{ '%.4f' | format(judge_usage.estimated_cost_usd) }} + ?{% else %}?{% endif %}</strong>estimated spend<br><span class="meta">judge {% if judge_usage.estimated_cost_usd is none %}?{% else %}${{ '%.4f' | format(judge_usage.estimated_cost_usd) }}{% endif %}: {{ judge_usage.input_tokens }} in / {{ judge_usage.output_tokens }} out, {{ judge_usage.calls }} calls<br>target {% if target_usage.estimated_cost_usd is none %}?{% else %}${{ '%.4f' | format(target_usage.estimated_cost_usd) }}{% endif %}: {{ target_usage.requests }} requests{% if target_usage.counted %}, {{ target_usage.input_tokens }} in / {{ target_usage.output_tokens }} out{% endif %}</span></div>
 </div>
-{% if report.summary.usage.estimated_cost_usd is none and report.summary.usage.calls %}
-<p class="warn">No list price is known for <code>{{ report.judge.model }}</code>. Set <code>input_price</code> and <code>output_price</code> under <code>[judge]</code> (US dollars per million tokens) to estimate the spend.</p>
+{% if judge_usage.estimated_cost_usd is none and judge_usage.calls %}
+<p class="warn">No list price is known for <code>{{ report.judge.model }}</code>. Set <code>input_price</code> and <code>output_price</code> under <code>[judge]</code> (US dollars per million tokens) to estimate the judge spend.</p>
+{% endif %}
+{% if target_usage.estimated_cost_usd is none and target_usage.requests %}
+<p class="warn">The target's cost is unknown. Set <code>input_price</code> and <code>output_price</code> under <code>[target]</code> with <code>usage_input_path</code> and <code>usage_output_path</code>, or <code>cost_per_request</code>, to estimate it.</p>
 {% endif %}
 
 {% if report.summary.responses_from_cache %}

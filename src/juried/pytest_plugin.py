@@ -13,7 +13,16 @@ from juried.calibrate import CALIBRATION_REPORT
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
 from juried.judge import ProviderError, build_provider
-from juried.pricing import Usage, describe_usage
+from juried.pricing import (
+    TargetUsage,
+    Usage,
+    describe_run_cost,
+    describe_target_usage,
+    describe_usage,
+    estimate_usd,
+    prices_for,
+    target_estimate_usd,
+)
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult, Session
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
@@ -391,6 +400,18 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     terminalreporter.write_line(
         f"judge usage: {describe_usage(usage, judge_config.model, judge_config.prices)}"
     )
+    target = sum((result.target_usage for result in state.results), TargetUsage())
+    target_config = state.config.target
+    terminalreporter.write_line(
+        "target usage: "
+        + describe_target_usage(target, target_config.prices, target_config.cost_per_request)
+    )
+    run_cost = describe_run_cost(
+        estimate_usd(usage, prices_for(judge_config.model, judge_config.prices)),
+        target_estimate_usd(target, target_config.prices, target_config.cost_per_request),
+    )
+    if run_cost:
+        terminalreporter.write_line(run_cost)
     replayed = sum(result.responses_from_cache for result in state.results)
     if replayed:
         total = sum(result.total for result in state.results)

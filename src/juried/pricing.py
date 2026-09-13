@@ -55,6 +55,39 @@ class Usage:
         return cls(int(data.get("input_tokens", 0)), int(data.get("output_tokens", 0)), 1)
 
 
+# Tokens per call assumed by a dry run when no report exists to take averages from.
+ASSUMED_INPUT_TOKENS = 400
+ASSUMED_OUTPUT_TOKENS = 150
+
+
+@dataclass(frozen=True)
+class TargetUsage:
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    bytes: int = 0
+    # Requests whose reply carried token counts; the token sums cover only these.
+    counted: int = 0
+
+    def __add__(self, other: TargetUsage) -> TargetUsage:
+        return TargetUsage(
+            self.requests + other.requests,
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.bytes + other.bytes,
+            self.counted + other.counted,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requests": self.requests,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "bytes": self.bytes,
+            "counted": self.counted,
+        }
+
+
 def prices_for(
     model: str, override: tuple[float, float] | None = None
 ) -> tuple[float, float] | None:
@@ -74,8 +107,43 @@ def estimate_usd(usage: Usage, prices: tuple[float, float] | None) -> float | No
     return (usage.input_tokens * input_price + usage.output_tokens * output_price) / 1_000_000
 
 
+def target_estimate_usd(
+    usage: TargetUsage, prices: tuple[float, float] | None, cost_per_request: float | None
+) -> float | None:
+    if cost_per_request is not None:
+        return usage.requests * cost_per_request
+    if prices is None:
+        return None
+    input_price, output_price = prices
+    return (usage.input_tokens * input_price + usage.output_tokens * output_price) / 1_000_000
+
+
 def format_usd(amount: float) -> str:
     return f"${amount:.4f}" if amount < 0.1 else f"${amount:.2f}"
+
+
+def describe_target_usage(
+    usage: TargetUsage, prices: tuple[float, float] | None, cost_per_request: float | None
+) -> str:
+    text = f"{usage.requests} request{'s' if usage.requests != 1 else ''}"
+    cost = target_estimate_usd(usage, prices, cost_per_request)
+    if cost_per_request is not None:
+        return f"{text}, estimated {format_usd(cost or 0.0)} at {format_usd(cost_per_request)} each"
+    if prices is None:
+        return f"{text}, cost unknown (set [target] input_price/output_price or cost_per_request)"
+    tokens = f"{usage.input_tokens:,} input + {usage.output_tokens:,} output tokens"
+    if usage.counted < usage.requests:
+        tokens += f" over {usage.counted} of them"
+    return f"{text}, {tokens}, estimated {format_usd(cost or 0.0)} at configured prices"
+
+
+def describe_run_cost(judge: float | None, target: float | None) -> str | None:
+    if judge is None or target is None:
+        return None
+    return (
+        f"estimated run cost: {format_usd(judge + target)} "
+        f"(judge {format_usd(judge)} + target {format_usd(target)})"
+    )
 
 
 def describe_usage(usage: Usage, model: str, override: tuple[float, float] | None) -> str:

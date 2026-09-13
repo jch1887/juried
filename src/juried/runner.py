@@ -15,7 +15,7 @@ from juried.cache import Cache
 from juried.config import Config
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
-from juried.pricing import Usage
+from juried.pricing import TargetUsage, Usage
 from juried.scenarios import Scenario, Turn
 from juried.stats import Gate, Interval, wilson_interval
 from juried.targets.base import Target
@@ -23,6 +23,37 @@ from juried.targets.http import HttpTarget, TargetConfigError
 from juried.transport import TransportFailure
 
 TargetFactory = Callable[[httpx.AsyncClient], Target]
+
+
+@dataclass(frozen=True)
+class TargetRequest:
+    status_code: int | None
+    elapsed_ms: float
+    bytes: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    error: bool = False
+
+    @property
+    def usage(self) -> TargetUsage:
+        counted = self.input_tokens is not None and self.output_tokens is not None
+        return TargetUsage(
+            1,
+            self.input_tokens or 0,
+            self.output_tokens or 0,
+            self.bytes,
+            1 if counted else 0,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status_code": self.status_code,
+            "elapsed_ms": round(self.elapsed_ms, 1),
+            "bytes": self.bytes,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "error": self.error,
+        }
 
 
 @dataclass
@@ -37,6 +68,8 @@ class RunRecord:
     # Live turns before the final message: the user messages from `turns` and the feature's
     # replies to them, in order.
     transcript: list[Turn] = field(default_factory=list)
+    # One entry per request sent to the target this attempt; replayed responses send none.
+    requests: list[TargetRequest] = field(default_factory=list)
     response_cached: bool = False
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
@@ -60,6 +93,10 @@ class RunRecord:
     def usage(self) -> Usage:
         # Cached votes cost nothing this run, so only fresh votes count.
         return sum(self.fresh_votes, Usage())
+
+    @property
+    def target_usage(self) -> TargetUsage:
+        return sum((request.usage for request in self.requests), TargetUsage())
 
     @property
     def outcome(self) -> str:
@@ -93,6 +130,8 @@ class RunRecord:
             "votes": [vote.to_dict() for vote in self.votes],
             "agreement": self.agreement,
             "usage": self.usage.to_dict(),
+            "target_usage": self.target_usage.to_dict(),
+            "requests": [request.to_dict() for request in self.requests],
             "response_cached": self.response_cached,
             "verdict_cached": self.verdict_cached,
             "elapsed_ms": round(self.elapsed_ms, 1),
@@ -204,6 +243,10 @@ class ScenarioResult:
         return sum((run.usage for run in self.runs), Usage())
 
     @property
+    def target_usage(self) -> TargetUsage:
+        return sum((run.target_usage for run in self.runs), TargetUsage())
+
+    @property
     def judge_agreement(self) -> float | None:
         judged = [run.agreement for run in self.runs if run.agreement is not None]
         return sum(judged) / len(judged) if judged else None
@@ -249,6 +292,7 @@ class ScenarioResult:
             "judge_agreement": self.judge_agreement,
             "split_verdicts": self.split_verdicts,
             "usage": self.usage.to_dict(),
+            "target_usage": self.target_usage.to_dict(),
             "latency": self.latency.to_dict(),
             "attempts": [run.to_dict() for run in self.runs],
         }
@@ -405,12 +449,24 @@ class Runner:
             record.response_cached = True
             return str(cached["text"])
         async with resources.target_slots:
+            started = time.perf_counter()
             try:
                 response = await target.send(text, conversation)
             except TransportFailure as exc:
                 turn = f"turn {step + 1}: " if step else ""
                 record.error = f"{turn}{exc}"
+                elapsed = (time.perf_counter() - started) * 1000
+                record.requests.append(TargetRequest(exc.status_code, elapsed, error=True))
                 return None
+        record.requests.append(
+            TargetRequest(
+                response.status_code,
+                response.elapsed_ms,
+                response.bytes,
+                response.input_tokens,
+                response.output_tokens,
+            )
+        )
         record.response_ms = (record.response_ms or 0.0) + response.elapsed_ms
         if replay:
             self.cache.put(

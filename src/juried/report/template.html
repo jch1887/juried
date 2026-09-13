@@ -12,9 +12,10 @@
   h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 1px solid #d9dee3; padding-bottom: 0.25rem; }
   h3 { font-size: 1rem; margin: 1.5rem 0 0.5rem; }
   .meta { color: #52606d; font-size: 0.9rem; }
-  .summary { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1.5rem 0; }
-  .summary div { border: 1px solid #d9dee3; border-radius: 4px; padding: 0.6rem 1rem; min-width: 8rem; }
-  .summary strong { display: block; font-size: 1.4rem; }
+  .summary { display: grid; gap: 0.75rem; margin: 1.5rem 0; }
+  .summary div { border: 1px solid #d9dee3; border-radius: 4px; padding: 0.5rem 0.7rem; min-width: 0; font-size: 0.85rem; }
+  .summary strong { display: block; font-size: 1.25rem; }
+  @media (max-width: 48rem) { .summary { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
   table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.92rem; }
   th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #e4e7eb; vertical-align: top; }
   th { background: #f5f7fa; font-weight: 600; }
@@ -45,7 +46,12 @@
   Defaults: {{ report.defaults.runs }} runs per scenario, gate at {{ report.defaults.threshold }} on the lower bound of the Wilson 95% interval{% if report.defaults.required_passes is not none %}, which needs {{ report.defaults.required_passes }} of {{ report.defaults.runs }} runs to pass{% endif %}.
 </p>
 
-<div class="summary">
+{# Eight tiles always, plus one for replayed responses and one for split verdicts when
+   they apply. Up to eight sit on one row; more split into two even rows, so no tile is
+   left orphaned on a row of its own. #}
+{% set tiles = 8 + (1 if report.summary.responses_from_cache else 0) + (1 if report.judge.votes > 1 else 0) %}
+{% set columns = tiles if tiles <= 8 else (tiles + 1) // 2 %}
+<div class="summary" style="grid-template-columns: repeat({{ columns }}, minmax(0, 1fr));">
   <div><strong>{{ report.summary.criteria }}</strong>criteria</div>
   <div><strong>{{ report.summary.scenarios }}</strong>scenarios</div>
   <div><strong class="upheld">{{ report.summary.gates_passed }}</strong>gates upheld</div>
@@ -73,6 +79,7 @@
 <p class="warn">Criteria with no scenarios: {{ report.summary.criteria_without_scenarios | join(', ') }}.</p>
 {% endif %}
 
+{% set rule = namespace(shown=false) %}
 {% for criterion in report.criteria %}
 <h2 id="{{ criterion.id }}">{{ criterion.title }} <span class="meta">({{ criterion.id }})</span></h2>
 {% if criterion.description %}
@@ -81,6 +88,10 @@
 {% if not criterion.scenarios %}
 <p class="warn">No scenarios were run for this criterion.</p>
 {% else %}
+{% if not rule.shown %}
+<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold. The threshold is not a pass rate: the "needs" figure under it is the number of runs that must pass. The rate and interval count only attempts that reached a verdict; a scenario with transport or judge errors is incomplete, whatever its rate.</p>
+{% set rule.shown = true %}
+{% endif %}
 <table>
   <thead>
     <tr>
@@ -111,7 +122,6 @@
   {% endfor %}
   </tbody>
 </table>
-<p class="meta rule">A scenario is upheld when the lower bound of its 95% interval meets the threshold. The threshold is not a pass rate: the "needs" figure under it is the number of runs that must pass. The rate and interval count only attempts that reached a verdict; a scenario with transport or judge errors is incomplete, whatever its rate.</p>
 
 {% for scenario in criterion.scenarios %}
 <h3 id="{{ scenario.id }}">{{ scenario.name }} <span class="meta">({{ scenario.id }})</span> <span class="{{ scenario.status }}">{{ scenario.status }}</span></h3>

@@ -322,10 +322,11 @@ findings to a file.
 ## The report
 
 After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.
-The HTML is a single self contained file with no scripts. It opens with the totals, then
-lists each acceptance criterion with its description, a table of its scenarios showing
-passes, pass rate, interval, threshold, response latency and gate result, and beneath the
-table each scenario's message, expectation and every failing run with the response and
+The HTML is a single self contained file with no scripts. It opens with one row of totals,
+states the gate rule once above the first table, then lists each acceptance criterion with
+its description, a table of its scenarios showing passes over judged attempts, pass rate,
+interval, threshold with the passes it needs, response latency and gate result, and beneath
+the table each scenario's message, expectation and every failing run with the response and
 the judge's reason. Criteria with no scenarios are called out so coverage gaps are
 visible. The JSON file holds the same structure plus every attempt, for anyone who wants
 to chart trends.

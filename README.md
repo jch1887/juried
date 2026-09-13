@@ -36,7 +36,7 @@ juried compare old.json new.json # flags scenarios that got worse between two re
 ```
 
 `juried run` accepts pytest arguments after its own, for example
-`juried run --runs 50 -k refunds -x --junitxml=out.xml`. Generation is a one off step:
+`juried run --runs 50 -k refund -x --junitxml=out.xml`. Generation is a one off step:
 review and edit the generated YAML, commit it, and `run` never touches it. `calibrate` is
 covered under "Trusting the judge" and `compare` under "Comparing runs".
 

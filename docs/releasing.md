@@ -15,7 +15,9 @@ the package when a GitHub release is published for the tag.
    virtual environment per interpreter; the `Check` workflow does the same on the pull
    request.
 5. Run `make example` and read the output: the refund scenario should be the only gate
-   that fails, and `juried calibrate` should report the stub's two false passes.
+   that fails, and `juried calibrate` should report that the stub agreed with 24 of the 32
+   labels, with eight false passes. `make` itself exits non zero because that gate fails,
+   which is the expected result.
 6. Open a pull request for the branch, wait for `Check` to pass, and merge it.
 7. On `main`, after pulling: `make check` once more, then create an annotated tag and push
    it:

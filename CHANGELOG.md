@@ -7,18 +7,15 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-13
+
 ### Added
 
 - A calibration set of 32 labelled responses for the example project, eight per criterion,
   and its report against `claude-haiku-4-5`, which agreed with every label. The example's
-  stub calibrate run now writes to `reports/stub/` so it does not overwrite that report.
-
-### Fixed
-
-- An empty `judge.model` or `generate.model`, whether from `juried.toml` or an empty
-  `JURIED_JUDGE_MODEL`, now stops the run with "judge.model must not be empty" instead of
-  reaching the provider and coming back as an HTTP 400. The live tests treat an empty
-  model override as unset, which is how the workflow exports it.
+  stub calibrate run now writes to `reports/stub/` so it does not overwrite that report,
+  and `docs/calibration.md` describes the set as the pattern to copy.
+- Check, Live provider contract and PyPI version badges at the top of the README.
 
 ### Changed
 
@@ -26,7 +23,18 @@ change between minor versions; every such change is listed under "Breaking chang
   naming the missing secret, so a green run means both clients were exercised.
 - The HTML report's totals sit on one row of tiles, or two even rows when the replay and
   split verdict tiles apply, and the gate rule is stated once above the first table rather
-  than under every table.
+  than under every table. The README's screenshot is refreshed to match.
+- `juried generate` no longer prints a usage line under the stub provider, which spends
+  nothing.
+
+### Fixed
+
+- An empty `judge.model` or `generate.model`, whether from `juried.toml` or an empty
+  `JURIED_JUDGE_MODEL`, now stops the run with "judge.model must not be empty" instead of
+  reaching the provider and coming back as an HTTP 400. The live tests treat an empty
+  model override as unset, which is how the workflow exports it.
+- The sdist no longer carries the README logo and the report screenshot, which the README
+  references by URL; it is under 200 KB rather than over 1 MB.
 
 ## [0.2.0] - 2026-09-12
 
@@ -117,5 +125,6 @@ change between minor versions; every such change is listed under "Breaking chang
 - The README's claim that nothing but keys is ever read from disk (#24).
 - Concurrency tests no longer assert wall clock time, which failed on slow CI runners (#29).
 
-[Unreleased]: https://github.com/jch1887/juried/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jch1887/juried/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/jch1887/juried/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jch1887/juried/compare/v0.1.1...v0.2.0

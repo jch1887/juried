@@ -260,7 +260,10 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
     for path in outcome.written:
         criterion_id = path.stem
         print(f"wrote {path} ({outcome.counts[criterion_id]} scenarios)")
-    print("usage: " + describe_usage(provider.usage_total, provider.model, config.generate_prices))
+    if provider.name != "stub":
+        print(
+            "usage: " + describe_usage(provider.usage_total, provider.model, config.generate_prices)
+        )
     if outcome.written:
         print("review and edit the generated files, then commit them and run 'juried run'")
     return 0

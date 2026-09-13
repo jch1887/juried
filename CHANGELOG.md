@@ -16,6 +16,8 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Changed
 
+- The live provider workflow fails when either provider was skipped for want of a key,
+  naming the missing secret, so a green run means both clients were exercised.
 - The HTML report's totals sit on one row of tiles, or two even rows when the replay and
   split verdict tiles apply, and the gate rule is stated once above the first table rather
   than under every table.

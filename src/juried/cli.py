@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from juried import __version__
+from juried.adversarial import criteria_for
 from juried.calibrate import (
     CalibrationError,
     load_calibration,
@@ -28,7 +29,7 @@ from juried.compare import (
     power_of,
 )
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
-from juried.criteria import CriteriaError, load_criteria
+from juried.criteria import CriteriaError
 from juried.estimate import describe_plan, load_previous_report, plan_run
 from juried.generate import generate_scenarios
 from juried.judge import ProviderError, build_provider
@@ -123,6 +124,10 @@ concurrency = 4
 # wants variety, so leave it unset for the model's default or set one here.
 # temperature = 1.0
 scenarios_per_criterion = 4
+# `juried generate --adversarial` writes scenarios that try to make the feature violate
+# each criterion. With this true it also writes juried's built-in pack (prompt injection,
+# system prompt extraction, PII disclosure), whose criteria then count in runs.
+# adversarial_pack = false
 """
 
 INIT_CRITERIA = """# Acceptance criteria
@@ -184,6 +189,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--criterion", action="append", metavar="ID", help="only this criterion (repeatable)"
     )
     generate.add_argument("--force", action="store_true", help="overwrite generated files")
+    generate.add_argument(
+        "--adversarial",
+        action="store_true",
+        help="write scenarios that try to make the feature violate each criterion, to "
+        "scenarios/generated/<criterion>.adversarial.yaml",
+    )
 
     calibrate = commands.add_parser(
         "calibrate", help="judge human labelled responses and report how often the judge agrees"
@@ -296,9 +307,11 @@ def command_init(directory: Path, force: bool) -> int:
     return 0
 
 
-def command_generate(explicit: str | None, only: list[str] | None, force: bool) -> int:
+def command_generate(
+    explicit: str | None, only: list[str] | None, force: bool, adversarial: bool = False
+) -> int:
     _, config = locate_config(explicit)
-    criteria = load_criteria(config.criteria_path)
+    criteria = criteria_for(config)
     if only:
         unknown = set(only) - {criterion.id for criterion in criteria}
         if unknown:
@@ -311,15 +324,21 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
         config.generate_base_url,
         config.generate_api_key_env,
     )
-    print(f"generating scenarios with {provider.name}/{provider.model}")
+    mode = "adversarial scenarios" if adversarial else "scenarios"
+    print(f"generating {mode} with {provider.name}/{provider.model}")
     outcome = generate_scenarios(
-        config, criteria, provider, force=force, only=set(only) if only else None
+        config,
+        criteria,
+        provider,
+        force=force,
+        only=set(only) if only else None,
+        adversarial=adversarial,
     )
     for path in outcome.skipped:
         print(f"kept existing {path} (use --force to regenerate)")
     for path in outcome.written:
-        criterion_id = path.stem
-        print(f"wrote {path} ({outcome.counts[criterion_id]} scenarios)")
+        key = path.name.removesuffix(".adversarial.yaml").removesuffix(".yaml")
+        print(f"wrote {path} ({outcome.counts[key]} scenarios)")
     if provider.name != "stub":
         print(
             "usage: " + describe_usage(provider.usage_total, provider.model, config.generate_prices)
@@ -331,7 +350,7 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
 
 def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     _, config = locate_config(explicit)
-    criteria = load_criteria(config.criteria_path)
+    criteria = criteria_for(config)
     cases = load_calibration(config.calibration_path, {c.id: c for c in criteria})
     judge = config.judge
     provider = build_provider(
@@ -374,7 +393,7 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
 
 def command_estimate(explicit: str | None, extra: Sequence[str] = ()) -> int:
     _, config = locate_config(explicit)
-    known = {criterion.id for criterion in load_criteria(config.criteria_path)}
+    known = {criterion.id for criterion in criteria_for(config)}
     scenarios = load_scenarios(config.scenarios_path)
     unknown = sorted({s.criterion for s in scenarios} - known)
     if unknown:
@@ -497,7 +516,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             return command_init(Path(args.dir), args.force)
         if args.command == "generate":
-            return command_generate(args.config, args.criterion, args.force)
+            return command_generate(args.config, args.criterion, args.force, args.adversarial)
         if args.command == "calibrate":
             return command_calibrate(args.config, args.min_accuracy)
         if args.command == "estimate":

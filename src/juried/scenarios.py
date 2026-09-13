@@ -11,7 +11,7 @@ from pydantic import Field, ValidationError, model_validator
 from juried.config import StrictModel
 from juried.criteria import slugify
 
-ScenarioKind = Literal["happy_path", "edge_case", "custom"]
+ScenarioKind = Literal["happy_path", "edge_case", "custom", "adversarial"]
 SCENARIO_SUFFIXES = (".yaml", ".yml")
 
 

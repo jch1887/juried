@@ -224,6 +224,10 @@ class GenerateConfig(StrictModel):
     base_url: str | None = None
     api_key_env: str | None = None
     scenarios_per_criterion: int = Field(default=4, ge=1)
+    # Write juried's criterion agnostic attacks (prompt injection, system prompt
+    # extraction, PII disclosure) with `generate --adversarial`, and recognise their
+    # criteria in runs.
+    adversarial_pack: bool = False
 
     @field_validator("model", "base_url", "api_key_env")
     @classmethod

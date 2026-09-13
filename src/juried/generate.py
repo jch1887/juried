@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from juried.adversarial import load_pack, pack_file_text, pack_output_path
 from juried.config import Config
 from juried.criteria import Criterion, slugify
 from juried.judge.base import Provider
@@ -26,8 +27,9 @@ class GenerationOutcome:
     counts: dict[str, int] = field(default_factory=dict)
 
 
-def output_path(config: Config, criterion: Criterion) -> Path:
-    return config.scenarios_path / GENERATED_DIR / f"{criterion.id}.yaml"
+def output_path(config: Config, criterion: Criterion, adversarial: bool = False) -> Path:
+    suffix = ".adversarial.yaml" if adversarial else ".yaml"
+    return config.scenarios_path / GENERATED_DIR / f"{criterion.id}{suffix}"
 
 
 def existing_ids(config: Config, exclude: set[Path]) -> set[str]:
@@ -66,13 +68,17 @@ def drafts_to_scenarios(
 
 
 async def _generate_all(
-    provider: Provider, targets: list[Criterion], count: int, concurrency: int
+    provider: Provider,
+    targets: list[Criterion],
+    count: int,
+    concurrency: int,
+    adversarial: bool,
 ) -> list[list[ScenarioDraft]]:
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(criterion: Criterion) -> list[ScenarioDraft]:
         async with semaphore:
-            return await provider.generate(criterion, count)
+            return await provider.generate(criterion, count, adversarial)
 
     async with provider:
         return list(await asyncio.gather(*(one(criterion) for criterion in targets)))
@@ -85,32 +91,48 @@ def generate_scenarios(
     *,
     force: bool = False,
     only: set[str] | None = None,
+    adversarial: bool = False,
 ) -> GenerationOutcome:
     outcome = GenerationOutcome()
+    # The pack's own criteria are not generated for: the pack is their scenarios.
+    pack_ids = {c.id for c in load_pack().criteria} if adversarial else set()
     targets: list[Criterion] = []
     for criterion in criteria:
         if only is not None and criterion.id not in only:
             continue
-        path = output_path(config, criterion)
+        if criterion.id in pack_ids:
+            continue
+        path = output_path(config, criterion, adversarial)
         if path.exists() and not force:
             outcome.skipped.append(path)
             continue
         targets.append(criterion)
-    if not targets:
-        return outcome
-
-    drafts = asyncio.run(
-        _generate_all(
-            provider, targets, config.generate.scenarios_per_criterion, config.run.concurrency
+    if targets:
+        drafts = asyncio.run(
+            _generate_all(
+                provider,
+                targets,
+                config.generate.scenarios_per_criterion,
+                config.run.concurrency,
+                adversarial,
+            )
         )
-    )
-    replaced = {output_path(config, criterion) for criterion in targets}
-    taken = existing_ids(config, exclude=replaced)
-    for criterion, criterion_drafts in zip(targets, drafts, strict=True):
-        scenarios = drafts_to_scenarios(criterion, criterion_drafts, taken)
-        path = output_path(config, criterion)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(dump_scenario_file(criterion.id, scenarios), encoding="utf-8")
-        outcome.written.append(path)
-        outcome.counts[criterion.id] = len(scenarios)
+        replaced = {output_path(config, criterion, adversarial) for criterion in targets}
+        taken = existing_ids(config, exclude=replaced)
+        for criterion, criterion_drafts in zip(targets, drafts, strict=True):
+            scenarios = drafts_to_scenarios(criterion, criterion_drafts, taken)
+            path = output_path(config, criterion, adversarial)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(dump_scenario_file(criterion.id, scenarios), encoding="utf-8")
+            outcome.written.append(path)
+            outcome.counts[criterion.id] = len(scenarios)
+    if adversarial and config.generate.adversarial_pack:
+        path = pack_output_path(config)
+        if path.exists() and not force:
+            outcome.skipped.append(path)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(pack_file_text(), encoding="utf-8")
+            outcome.written.append(path)
+            outcome.counts[path.stem] = len(load_pack().scenarios)
     return outcome

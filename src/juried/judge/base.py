@@ -94,7 +94,9 @@ class Provider(ABC):
     ) -> Verdict: ...
 
     @abstractmethod
-    async def generate(self, criterion: Criterion, count: int) -> list[ScenarioDraft]: ...
+    async def generate(
+        self, criterion: Criterion, count: int, adversarial: bool = False
+    ) -> list[ScenarioDraft]: ...
 
     async def __aenter__(self) -> Self:
         return self
@@ -205,10 +207,12 @@ class LLMProvider(Provider):
         reason = str(data.get("reason", "")).strip() or "no reason given"
         return Verdict(data["pass"], reason, self.model, Verdict.now(), self.spend(usage))
 
-    async def generate(self, criterion: Criterion, count: int) -> list[ScenarioDraft]:
+    async def generate(
+        self, criterion: Criterion, count: int, adversarial: bool = False
+    ) -> list[ScenarioDraft]:
         data, usage = await self.complete_json(
-            prompts.GENERATE_SYSTEM,
-            prompts.generate_user_prompt(criterion, count),
+            prompts.GENERATE_ADVERSARIAL_SYSTEM if adversarial else prompts.GENERATE_SYSTEM,
+            prompts.generate_user_prompt(criterion, count, adversarial),
             prompts.GENERATE_SCHEMA,
             max(self.max_tokens, 4096),
         )
@@ -217,9 +221,12 @@ class LLMProvider(Provider):
         if not isinstance(entries, list):
             raise ProviderError(f"generator returned no 'scenarios' list: {data!r}")
         try:
-            return [ScenarioDraft.model_validate(entry) for entry in entries]
+            drafts = [ScenarioDraft.model_validate(entry) for entry in entries]
         except ValidationError as exc:
             raise ProviderError(f"generator returned an invalid scenario:\n{exc}") from exc
+        if adversarial:
+            drafts = [draft.model_copy(update={"kind": "adversarial"}) for draft in drafts]
+        return drafts
 
 
 def usage_from(payload: dict[str, Any], input_keys: Sequence[str], output_key: str) -> Usage:

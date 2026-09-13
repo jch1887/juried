@@ -149,6 +149,12 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_adversarial_pack_defaults_off(tmp_path: Path) -> None:
+    assert parse_config(MINIMAL, tmp_path, environ={}).generate.adversarial_pack is False
+    on = parse_config(MINIMAL + "[generate]\nadversarial_pack = true\n", tmp_path, environ={})
+    assert on.generate.adversarial_pack is True
+
+
 def test_strict_quotes_defaults_off(tmp_path: Path) -> None:
     assert parse_config(MINIMAL, tmp_path, environ={}).judge.strict_quotes is False
     on = parse_config(MINIMAL + "[judge]\nstrict_quotes = true\n", tmp_path, environ={})

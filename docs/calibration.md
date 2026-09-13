@@ -83,9 +83,10 @@ git add -f reports/juried-calibration.json
 
 ## Reference set
 
-`examples/faq-bot/calibration/` holds one file per criterion, 32 cases in all, and
-`examples/faq-bot/reports/juried-calibration.json` is their report against
-`claude-haiku-4-5`. The set is the pattern to copy: eight cases per criterion, with every
+`examples/faq-bot/calibration/` holds one file per criterion plus six cases for the
+adversarial scenarios, 38 in all, and `examples/faq-bot/reports/juried-calibration.json`
+is the report for the first 32 against `claude-haiku-4-5`. The set is the pattern to copy:
+eight cases per criterion, with every
 category from step 1 represented, so that a judge which only matches words is caught on
 the inverted meaning, the reply addressed to the judge and the hedged guess, not just on
 the clear pass and the clear fail.

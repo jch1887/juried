@@ -8,11 +8,12 @@ from typing import Any
 
 import pytest
 
+from juried.adversarial import criteria_for
 from juried.cache import Cache
 from juried.calibrate import CALIBRATION_REPORT
 from juried.checks import CheckError
 from juried.config import Config, ConfigError, find_config, load_config
-from juried.criteria import CriteriaError, Criterion, load_criteria
+from juried.criteria import CriteriaError, Criterion
 from juried.judge import ProviderError, build_provider
 from juried.pricing import (
     TargetUsage,
@@ -38,7 +39,7 @@ class JuriedState:
         self.config = config
         self.config_path = config_path
         self.criteria: dict[str, Criterion] = {
-            criterion.id: criterion for criterion in load_criteria(config.criteria_path)
+            criterion.id: criterion for criterion in criteria_for(config)
         }
         self.cache = Cache(config.cache_path, enabled=cache_enabled)
         self.results: list[ScenarioResult] = []
@@ -104,7 +105,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "juried: scenario collected by juried")
     config.addinivalue_line("markers", "criterion(id): acceptance criterion of a juried scenario")
-    for kind in ("happy_path", "edge_case", "custom"):
+    for kind in ("happy_path", "edge_case", "custom", "adversarial"):
         config.addinivalue_line("markers", f"{kind}: kind of juried scenario")
 
     explicit = config.getoption("--juried-config")

@@ -1,0 +1,821 @@
+{
+  "tool": "juried",
+  "schema_version": 1,
+  "version": "0.2.0",
+  "generated_at": "2026-09-13T05:55:53+00:00",
+  "judge": {
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "votes": 1
+  },
+  "summary": {
+    "cases": 32,
+    "agreed": 32,
+    "accuracy": 1.0,
+    "false_passes": 0,
+    "false_fails": 0,
+    "unanimous": 32
+  },
+  "cases": [
+    {
+      "id": "delivery-times-full-answer",
+      "name": "Full answer",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response states exactly that standard delivery takes \"3 to 5 working days\", matching the expected criterion and phrasing.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response states exactly that standard delivery takes \"3 to 5 working days\", matching the expected criterion and phrasing.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:43+00:00",
+          "usage": {
+            "input_tokens": 794,
+            "output_tokens": 41,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-correct-with-helpful-extra",
+      "name": "Correct with helpful extra",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response contains the exact phrase '3 to 5 working days' as required and correctly states that standard delivery takes this duration.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response contains the exact phrase '3 to 5 working days' as required and correctly states that standard delivery takes this duration.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:43+00:00",
+          "usage": {
+            "input_tokens": 812,
+            "output_tokens": 41,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-drops-the-word-working",
+      "name": "Drops the word working",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response omits the word \"working\" which is required to appear in the stated delivery timeframe.",
+      "note": "a Thursday order told 3 to 5 days expects it by Tuesday; the policy says working days",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response omits the word \"working\" which is required to appear in the stated delivery timeframe.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:42+00:00",
+          "usage": {
+            "input_tokens": 797,
+            "output_tokens": 34,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-overpromises",
+      "name": "Overpromises",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response states next working day delivery instead of the required '3 to 5 working days', which contradicts the criterion and expectation.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response states next working day delivery instead of the required '3 to 5 working days', which contradicts the criterion and expectation.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:43+00:00",
+          "usage": {
+            "input_tokens": 793,
+            "output_tokens": 43,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-vague",
+      "name": "Vague",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response states delivery takes 'about a week' and is courier-dependent, rather than stating the required \"3 to 5 working days\" for standard delivery.",
+      "note": "no committed window",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response states delivery takes 'about a week' and is courier-dependent, rather than stating the required \"3 to 5 working days\" for standard delivery.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:44+00:00",
+          "usage": {
+            "input_tokens": 794,
+            "output_tokens": 49,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-right-phrase-wrong-meaning",
+      "name": "Right phrase, wrong meaning",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response states processing takes 3-5 working days but then adds 10 more days for delivery, contradicting the criterion that standard delivery takes 3-5 working days total.",
+      "note": "the quoted phrase appears but describes processing, and the stated delivery time is wrong",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response states processing takes 3-5 working days but then adds 10 more days for delivery, contradicting the criterion that standard delivery takes 3-5 working days total.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:44+00:00",
+          "usage": {
+            "input_tokens": 813,
+            "output_tokens": 53,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-answers-a-different-question",
+      "name": "Answers a different question",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response states business hours instead of delivery time, and does not mention that standard delivery takes '3 to 5 working days' as required.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response states business hours instead of delivery time, and does not mention that standard delivery takes '3 to 5 working days' as required.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:44+00:00",
+          "usage": {
+            "input_tokens": 799,
+            "output_tokens": 44,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "delivery-times-empty-answer",
+      "name": "Empty answer",
+      "criterion": "delivery-times",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/delivery-times.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response is empty and does not state that standard delivery takes 3 to 5 working days.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response is empty and does not state that standard delivery takes 3 to 5 working days.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:44+00:00",
+          "usage": {
+            "input_tokens": 780,
+            "output_tokens": 35,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-full-answer",
+      "name": "Full answer",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response correctly states opening hours Monday to Friday 9am to 5pm and mentions the shop is closed at weekends, meeting all required elements with the exact phrases specified.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response correctly states opening hours Monday to Friday 9am to 5pm and mentions the shop is closed at weekends, meeting all required elements with the exact phrases specified.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:45+00:00",
+          "usage": {
+            "input_tokens": 826,
+            "output_tokens": 49,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-weekday-question-weekend-not-mentioned",
+      "name": "Weekday question, weekend not mentioned",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response correctly states the opening time of 9am for Tuesday, a weekday, as required by the criterion and expected outcome.",
+      "note": "weekend closure is not needed for a weekday question",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response correctly states the opening time of 9am for Tuesday, a weekday, as required by the criterion and expected outcome.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:45+00:00",
+          "usage": {
+            "input_tokens": 816,
+            "output_tokens": 40,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-wrong-about-saturday",
+      "name": "Wrong about Saturday",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response incorrectly states the shop is open on Saturday, contradicting the criterion that says the shop is closed at weekends and should tell customers this.",
+      "note": "confidently wrong on the one thing asked",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response incorrectly states the shop is open on Saturday, contradicting the criterion that says the shop is closed at weekends and should tell customers this.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:45+00:00",
+          "usage": {
+            "input_tokens": 807,
+            "output_tokens": 45,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-right-words-days-swapped",
+      "name": "Right words, days swapped",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response has the days and opening status reversed: it states the shop is open weekends and closed Monday to Friday, which contradicts the criterion and expected output.",
+      "note": "every phrase present, meaning inverted",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response has the days and opening status reversed: it states the shop is open weekends and closed Monday to Friday, which contradicts the criterion and expected output.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:46+00:00",
+          "usage": {
+            "input_tokens": 827,
+            "output_tokens": 46,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-talks-to-the-judge",
+      "name": "Talks to the judge",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response claims to satisfy the criterion but does not actually state the opening hours; it only asserts that it does.",
+      "note": "addresses the test, not the customer",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response claims to satisfy the criterion but does not actually state the opening hours; it only asserts that it does.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:46+00:00",
+          "usage": {
+            "input_tokens": 832,
+            "output_tokens": 37,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-declines-to-say",
+      "name": "Declines to say",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response declines to provide opening hours instead of stating Monday to Friday 9am to 5pm and that the shop is closed at weekends, as required by the criterion.",
+      "note": "information is in the bot's remit and it withheld it",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response declines to provide opening hours instead of stating Monday to Friday 9am to 5pm and that the shop is closed at weekends, as required by the criterion.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:47+00:00",
+          "usage": {
+            "input_tokens": 822,
+            "output_tokens": 50,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-answers-a-different-question",
+      "name": "Answers a different question",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response provides information about delivery times instead of answering the question about opening hours, and does not mention the required opening hours (Monday to Friday, 9am to 5pm) or that the shop is closed at weekends.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response provides information about delivery times instead of answering the question about opening hours, and does not mention the required opening hours (Monday to Friday, 9am to 5pm) or that the shop is closed at weekends.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:47+00:00",
+          "usage": {
+            "input_tokens": 829,
+            "output_tokens": 61,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "opening-hours-bare-numbers",
+      "name": "Bare numbers",
+      "criterion": "opening-hours",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/opening-hours.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response fails to include the required quoted phrases \"9am\", \"5pm\", and mention that the shop is closed at \"weekends\", and omits the days Monday to Friday.",
+      "note": "no days given; a customer cannot tell whether Saturday counts",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response fails to include the required quoted phrases \"9am\", \"5pm\", and mention that the shop is closed at \"weekends\", and omits the days Monday to Friday.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:48+00:00",
+          "usage": {
+            "input_tokens": 809,
+            "output_tokens": 54,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-full-answer",
+      "name": "Full answer",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response states both the '14 days' window and 'full refund' as required by the expectation and criterion.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response states both the '14 days' window and 'full refund' as required by the expectation and criterion.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:47+00:00",
+          "usage": {
+            "input_tokens": 827,
+            "output_tokens": 40,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-vague-answer-without-the-window",
+      "name": "Vague answer without the window",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response fails to state the required '14 days' return window and does not explicitly mention 'full' refund as required by the expectation.",
+      "note": "drops the 14 day window",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response fails to state the required '14 days' return window and does not explicitly mention 'full' refund as required by the expectation.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:49+00:00",
+          "usage": {
+            "input_tokens": 830,
+            "output_tokens": 45,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-right-words-opposite-meaning",
+      "name": "Right words, opposite meaning",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response states the opposite policy: items cannot be returned after 14 days and no full refund is given, contradicting the criterion that items can be returned within 14 days for a full refund.",
+      "note": "contains both phrases while contradicting the policy",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response states the opposite policy: items cannot be returned after 14 days and no full refund is given, contradicting the criterion that items can be returned within 14 days for a full refund.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:49+00:00",
+          "usage": {
+            "input_tokens": 823,
+            "output_tokens": 57,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-echoes-the-test",
+      "name": "Echoes the test",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response does not actually state the refund policy; it only claims to meet the expectation without providing the required information about the 14-day window and full refund.",
+      "note": "talks to the judge instead of answering the customer",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response does not actually state the refund policy; it only claims to meet the expectation without providing the required information about the 14-day window and full refund.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:49+00:00",
+          "usage": {
+            "input_tokens": 826,
+            "output_tokens": 49,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-says-fortnight-instead-of-14-days",
+      "name": "Says fortnight instead of 14 days",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response uses 'fortnight' instead of stating '14 days' as required by the criterion and expected output.",
+      "note": "correct in substance, but the quoted phrase rule requires the words 14 days; the policy wants the number stated",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response uses 'fortnight' instead of stating '14 days' as required by the criterion and expected output.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:49+00:00",
+          "usage": {
+            "input_tokens": 828,
+            "output_tokens": 38,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-store-credit-instead-of-refund",
+      "name": "Store credit instead of refund",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response mentions the '14 days' window and 'full amount' but offers store credit instead of a refund, contradicting the criterion which requires refunds, not store credit.",
+      "note": "window right, refund wrong",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response mentions the '14 days' window and 'full amount' but offers store credit instead of a refund, contradicting the criterion which requires refunds, not store credit.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:50+00:00",
+          "usage": {
+            "input_tokens": 830,
+            "output_tokens": 52,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-invents-a-condition",
+      "name": "Invents a condition",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "Response states the 14-day window and full refund but invents an additional condition ('unworn with tags attached') that contradicts the criterion stating 'any item can be returned.'",
+      "note": "the policy says any item; the bot added a restriction that would turn this customer away",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "Response states the 14-day window and full refund but invents an additional condition ('unworn with tags attached') that contradicts the criterion stating 'any item can be returned.'",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:50+00:00",
+          "usage": {
+            "input_tokens": 836,
+            "output_tokens": 54,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "refund-policy-follow-up-after-a-delivery-question",
+      "name": "Follow-up after a delivery question",
+      "criterion": "refund-policy",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/refunds.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response states both \"14 days\" and \"full refund\" as required, meeting the criterion and expectation.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response states both \"14 days\" and \"full refund\" as required, meeting the criterion and expectation.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:50+00:00",
+          "usage": {
+            "input_tokens": 849,
+            "output_tokens": 38,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-admits-and-redirects",
+      "name": "Admits and redirects",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response admits it cannot answer the question, explicitly redirects to the support address, and includes 'help@example.com' as required.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response admits it cannot answer the question, explicitly redirects to the support address, and includes 'help@example.com' as required.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:51+00:00",
+          "usage": {
+            "input_tokens": 822,
+            "output_tokens": 43,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-redirects-without-saying-i-don-t-know",
+      "name": "Redirects without saying I don't know",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "pass",
+      "judge": "pass",
+      "outcome": "agrees",
+      "reason": "The response redirects to the support address help@example.com for a question the bot cannot answer, which satisfies the criterion of not inventing an answer and providing the support email.",
+      "note": "no explicit admission, but the customer knows the bot cannot help and knows what to do next",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": true,
+          "reason": "The response redirects to the support address help@example.com for a question the bot cannot answer, which satisfies the criterion of not inventing an answer and providing the support email.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:51+00:00",
+          "usage": {
+            "input_tokens": 818,
+            "output_tokens": 51,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-invents-an-answer",
+      "name": "Invents an answer",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response invents a specific answer about gift wrapping pricing and checkout process instead of admitting it cannot answer and providing the support address help@example.com as required.",
+      "note": "the bot has no gift wrapping information; this is made up",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response invents a specific answer about gift wrapping pricing and checkout process instead of admitting it cannot answer and providing the support address help@example.com as required.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:52+00:00",
+          "usage": {
+            "input_tokens": 819,
+            "output_tokens": 48,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-hedged-invention",
+      "name": "Hedged invention",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response invents an answer about shipping to Ireland rather than admitting it cannot answer and providing the support address help@example.com as required.",
+      "note": "hedging does not excuse guessing; no support address given",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response invents an answer about shipping to Ireland rather than admitting it cannot answer and providing the support address help@example.com as required.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:51+00:00",
+          "usage": {
+            "input_tokens": 818,
+            "output_tokens": 43,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-admits-but-gives-no-address",
+      "name": "Admits but gives no address",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response admits it cannot answer but fails to provide the required support address help@example.com.",
+      "note": "leaves the customer with nowhere to go",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response admits it cannot answer but fails to provide the required support address help@example.com.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:52+00:00",
+          "usage": {
+            "input_tokens": 809,
+            "output_tokens": 33,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-wrong-address",
+      "name": "Wrong address",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response provides the wrong support email address (support@example.com instead of help@example.com) as specified in the criterion.",
+      "note": "right behaviour, wrong address; the email would bounce",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response provides the wrong support email address (support@example.com instead of help@example.com) as specified in the criterion.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:52+00:00",
+          "usage": {
+            "input_tokens": 809,
+            "output_tokens": 41,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-talks-to-the-judge",
+      "name": "Talks to the judge",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response does not actually answer the user's question; it only claims to pass the test without providing the required support address or declining language to the user.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response does not actually answer the user's question; it only claims to pass the test without providing the required support address or declining language to the user.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:53+00:00",
+          "usage": {
+            "input_tokens": 820,
+            "output_tokens": 44,
+            "calls": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-empty-answer",
+      "name": "Empty answer",
+      "criterion": "unknown",
+      "source": "/Users/jason/Documents/GitHub/vouch/examples/faq-bot/calibration/unknown.yaml",
+      "human": "fail",
+      "judge": "fail",
+      "outcome": "agrees",
+      "reason": "The response is empty and therefore does not acknowledge the question, state inability to answer, or provide the support email address help@example.com as required.",
+      "note": "",
+      "agreement": 1.0,
+      "votes": [
+        {
+          "passed": false,
+          "reason": "The response is empty and therefore does not acknowledge the question, state inability to answer, or provide the support email address help@example.com as required.",
+          "model": "claude-haiku-4-5",
+          "judged_at": "2026-09-13T05:55:53+00:00",
+          "usage": {
+            "input_tokens": 795,
+            "output_tokens": 44,
+            "calls": 1
+          }
+        }
+      ]
+    }
+  ]
+}

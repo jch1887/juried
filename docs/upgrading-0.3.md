@@ -78,6 +78,24 @@ unpriced until `[target]` names either token paths with prices or `cost_per_requ
 
 `juried run --dry-run` prints what a run would cost before anything is sent.
 
+## `juried compare` flags
+
+`--tolerance` is now `--min-effect`, and a drop must also be statistically significant at
+`--alpha` (default 0.05) to fail the step. The old flag still works as an alias for this
+release and prints a notice; it is removed in 0.4.
+
+```diff
+-juried compare old.json new.json --tolerance 0.05
++juried compare old.json new.json --min-effect 0.05
+```
+
+A comparison that failed on a one or two point drop at 20 runs will now pass and list that
+drop under "drops within noise". If your CI relied on any drop failing the step, that is the
+change to look at: the old behaviour turned red on sampling variance. The comparison JSON
+gains `schema_version`, `alpha`, `min_effect`, `detectable_drop` and `within_noise`, and
+each change gains `p_value`, `diff`, `diff_interval` and `significant`; `tolerance` is
+gone from it.
+
 ## Reports and JUnit
 
 - JSON: scenario entries and `defaults` gain `misses`. `required_passes` is always an

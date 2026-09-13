@@ -17,11 +17,15 @@ from juried.calibrate import (
     write_calibration_report,
 )
 from juried.compare import (
+    DEFAULT_ALPHA,
+    DEFAULT_MIN_EFFECT,
+    NOISE,
     CompareError,
     check_same_schema,
     compare_reports,
     comparison_dict,
     load_report,
+    power_of,
 )
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, load_criteria
@@ -188,11 +192,26 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("old", help="the earlier juried-report.json")
     compare.add_argument("new", help="the later juried-report.json")
     compare.add_argument(
+        "--alpha",
+        type=float,
+        default=DEFAULT_ALPHA,
+        metavar="P",
+        help=f"a drop is a regression when its one sided p-value is below this (default "
+        f"{DEFAULT_ALPHA})",
+    )
+    compare.add_argument(
+        "--min-effect",
+        type=float,
+        default=None,
+        metavar="RATE",
+        help=f"and the pass rate fell by at least this much (default {DEFAULT_MIN_EFFECT})",
+    )
+    compare.add_argument(
         "--tolerance",
         type=float,
-        default=0.0,
+        default=None,
         metavar="RATE",
-        help="ignore pass rate or lower bound drops up to this much (default 0)",
+        help="deprecated alias for --min-effect, removed in 0.4",
     )
     compare.add_argument("--json", metavar="PATH", help="also write the comparison as JSON")
 
@@ -350,18 +369,48 @@ def command_estimate(explicit: str | None, extra: Sequence[str] = ()) -> int:
     return 0
 
 
-def command_compare(old: str, new: str, tolerance: float, json_path: str | None) -> int:
+def resolve_min_effect(min_effect: float | None, tolerance: float | None) -> float:
+    if tolerance is not None:
+        if min_effect is not None and min_effect != tolerance:
+            raise CompareError(
+                f"--tolerance {tolerance} and --min-effect {min_effect} disagree; --tolerance "
+                "is a deprecated alias for --min-effect, pass one of them"
+            )
+        print(
+            f"juried: --tolerance is deprecated and is removed in 0.4; use --min-effect "
+            f"{tolerance:g}",
+            file=sys.stderr,
+        )
+        return tolerance
+    return DEFAULT_MIN_EFFECT if min_effect is None else min_effect
+
+
+def command_compare(
+    old: str,
+    new: str,
+    alpha: float,
+    min_effect: float | None,
+    tolerance: float | None,
+    json_path: str | None,
+) -> int:
+    if not 0.0 < alpha < 1.0:
+        raise CompareError(f"--alpha must be between 0 and 1 exclusive, not {alpha}")
+    effect = resolve_min_effect(min_effect, tolerance)
+    if not 0.0 <= effect <= 1.0:
+        raise CompareError(f"--min-effect must be between 0 and 1, not {effect}")
     old_path, new_path = Path(old), Path(new)
     old_report, new_report = load_report(old_path), load_report(new_path)
     check_same_schema(old_path, old_report, new_path, new_report)
-    changes = compare_reports(old_report, new_report, tolerance)
+    changes = compare_reports(old_report, new_report, alpha, effect)
     regressions = [change for change in changes if change.regression]
+    noise = [change for change in changes if change.kind in NOISE]
     improvements = [change for change in changes if change.kind in ("gate regained", "improved")]
     neutral = [change for change in changes if change.kind in ("added", "removed")]
     unchanged = sum(1 for change in changes if change.kind == "unchanged")
-    print(f"comparing {old_path} -> {new_path}")
+    print(f"comparing {old_path} -> {new_path} (alpha {alpha:g}, min effect {effect:g})")
     for label, group in (
         ("regressions", regressions),
+        ("drops within noise", noise),
         ("improvements", improvements),
         ("other changes", neutral),
     ):
@@ -370,13 +419,17 @@ def command_compare(old: str, new: str, tolerance: float, json_path: str | None)
             for change in group:
                 print(f"  {change.kind}: {change.id}: {change.detail}")
     print(
-        f"{len(regressions)} regression(s), {len(improvements)} improvement(s), "
-        f"{len(neutral)} added or removed, {unchanged} unchanged"
+        f"{len(regressions)} regression(s), {len(noise)} drop(s) within noise, "
+        f"{len(improvements)} improvement(s), {len(neutral)} added or removed, "
+        f"{unchanged} unchanged"
     )
+    power = power_of(changes, alpha)
+    if power is not None:
+        print(power.describe(alpha))
     if json_path:
         path = Path(json_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = comparison_dict(old_path, new_path, changes, tolerance)
+        data = comparison_dict(old_path, new_path, changes, alpha, effect)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"comparison: {path}")
     return 1 if regressions else 0
@@ -428,7 +481,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "estimate":
             return command_estimate(args.config, extra)
         if args.command == "compare":
-            return command_compare(args.old, args.new, args.tolerance, args.json)
+            return command_compare(
+                args.old, args.new, args.alpha, args.min_effect, args.tolerance, args.json
+            )
         return command_run(
             args.config,
             args.runs,

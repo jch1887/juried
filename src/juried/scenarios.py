@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 from juried.config import StrictModel
 from juried.criteria import slugify
@@ -23,6 +24,45 @@ class Turn(StrictModel):
     content: str
 
 
+CHECK_KINDS = ("contains", "not_contains", "regex", "json_schema", "max_latency_ms", "max_chars")
+
+
+# A deterministic test of a response, run before any judge call. One key per entry.
+class Check(StrictModel):
+    contains: str | None = Field(default=None, min_length=1)
+    not_contains: str | None = Field(default=None, min_length=1)
+    regex: str | None = Field(default=None, min_length=1)
+    json_schema: str | None = Field(default=None, min_length=1)
+    max_latency_ms: float | None = Field(default=None, gt=0)
+    max_chars: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def exactly_one_kind(self) -> Check:
+        given = [kind for kind in CHECK_KINDS if getattr(self, kind) is not None]
+        if len(given) != 1:
+            raise ValueError(
+                f"a check is one of {', '.join(CHECK_KINDS)}; got "
+                f"{', '.join(given) if given else 'nothing'}"
+            )
+        if self.regex is not None:
+            try:
+                re.compile(self.regex)
+            except re.error as exc:
+                raise ValueError(f"regex {self.regex!r} does not compile: {exc}") from None
+        return self
+
+    @property
+    def kind(self) -> str:
+        return next(kind for kind in CHECK_KINDS if getattr(self, kind) is not None)
+
+    @property
+    def value(self) -> Any:
+        return getattr(self, self.kind)
+
+    def describe(self) -> str:
+        return f"{self.kind} {self.value!r}"
+
+
 class ScenarioDraft(StrictModel):
     name: str = Field(min_length=1)
     kind: ScenarioKind = "custom"
@@ -36,6 +76,7 @@ class Scenario(ScenarioDraft):
     criterion: str = Field(min_length=1)
     # User messages sent one at a time before `message`, each answered live by the feature.
     turns: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
+    checks: list[Check] = Field(default_factory=list)
     runs: int | None = Field(default=None, ge=1)
     misses: int | None = Field(default=None, ge=0)
     # Deprecated since 0.3: misses is derived from it. Removed in 0.4.
@@ -121,6 +162,8 @@ def dump_scenario_file(criterion: str, scenarios: list[Scenario]) -> str:
             entry.pop("tags", None)
         if not entry.get("turns"):
             entry.pop("turns", None)
+        if not entry.get("checks"):
+            entry.pop("checks", None)
         entries.append(entry)
     document = {"criterion": criterion, "scenarios": entries}
     return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, width=88)

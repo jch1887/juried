@@ -115,7 +115,7 @@
     <tr>
       <td><a href="#{{ scenario.id }}">{{ scenario.name }}</a></td>
       <td>{{ scenario.kind.replace('_', ' ') }}</td>
-      <td class="num bound">{{ scenario.passes }} / {{ scenario.judged }}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.judge_errors %}<br><span class="warn">{{ scenario.judge_errors }} judge</span>{% endif %}{% if scenario.split_verdicts %}<br><span class="warn">{{ scenario.split_verdicts }} split</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
+      <td class="num bound">{{ scenario.passes }} / {{ scenario.judged }}{% if scenario.checks_failed %}<br><span class="meta">{{ scenario.checks_failed }} by checks</span>{% endif %}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.judge_errors %}<br><span class="warn">{{ scenario.judge_errors }} judge</span>{% endif %}{% if scenario.split_verdicts %}<br><span class="warn">{{ scenario.split_verdicts }} split</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
       <td class="num">{{ scenario.required_passes }} / {{ scenario.runs }}<br><span class="meta">{{ scenario.misses }} miss{{ 'es' if scenario.misses != 1 else '' }}</span></td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num">{{ scenario.interval.lower | percent }} to {{ scenario.interval.upper | percent }}</td>
@@ -138,6 +138,9 @@
   {% endfor %}
   <p><span class="label">user</span>{{ scenario.message }}</p>
   <p><span class="label">expected</span>{{ scenario.expected }}</p>
+  {% if scenario.checks %}
+  <p><span class="label">checks</span>{% for check in scenario.checks %}{% for kind, value in check.items() %}{{ kind }} {{ value }}{% endfor %}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+  {% endif %}
 </div>
 {% if scenario.failures %}
 <details open>
@@ -151,7 +154,14 @@
     {% if failure.response is not none %}
     <p><span class="label">response</span>{{ failure.response }}</p>
     {% endif %}
+    {% if failure.checks %}
+    <p><span class="label">checks</span>{% for outcome in failure.checks %}{{ outcome.kind }} {{ outcome.value }}: {{ 'passed' if outcome.passed else outcome.reason }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+    {% endif %}
+    {% if failure.by_checks %}
+    <p><span class="label">judge</span><span class="meta">not called, a check decided the attempt</span></p>
+    {% else %}
     <p><span class="label">judge</span>{{ failure.reason }}{% if failure.model %} <span class="meta">({{ failure.model }}{% if failure.votes > 1 %}, {{ (failure.agreement * failure.votes) | round | int }} of {{ failure.votes }} votes{% endif %}, {{ failure.judged_at }})</span>{% endif %}</p>
+    {% endif %}
   </div>
   {% endfor %}
 </details>

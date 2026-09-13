@@ -107,6 +107,10 @@ model = "claude-sonnet-5"
 # Each response is judged once. Set an odd number above 1 to judge it that many times and
 # take the majority; the report then shows how often the votes split.
 votes = 1
+# A "quoted phrase" in a scenario's expected text must appear in the response, ignoring
+# case, spacing, hyphens and end of word punctuation, before the judge is asked at all.
+# Set true to require it word for word.
+# strict_quotes = false
 # Every run reports the judge's token usage and an estimated spend from a dated table of
 # list prices. Set both to override the table, in US dollars per million tokens.
 # input_price = 2.0
@@ -337,6 +341,7 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
         judge.max_tokens,
         judge.base_url,
         judge.api_key_env,
+        judge.strict_quotes,
     )
     votes = f", {judge.votes} votes each" if judge.votes > 1 else ""
     print(

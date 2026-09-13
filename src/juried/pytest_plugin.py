@@ -10,6 +10,7 @@ import pytest
 
 from juried.cache import Cache
 from juried.calibrate import CALIBRATION_REPORT
+from juried.checks import CheckError
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion, load_criteria
 from juried.judge import ProviderError, build_provider
@@ -56,6 +57,7 @@ class JuriedState:
                 judge.max_tokens,
                 judge.base_url,
                 judge.api_key_env,
+                judge.strict_quotes,
             )
             self._runner = Runner(self.config, provider, self.cache)
         return self._runner
@@ -248,7 +250,7 @@ class ScenarioItem(pytest.Item):
         if isinstance(excinfo.value, GateFailure):
             state = self.config.stash[STATE]
             return format_gate_failure(excinfo.value.result, state)
-        if isinstance(excinfo.value, ProviderError | TargetConfigError):
+        if isinstance(excinfo.value, ProviderError | TargetConfigError | CheckError):
             return f"juried: {excinfo.value}"
         return super().repr_failure(excinfo, style)
 
@@ -283,6 +285,8 @@ def summarise(result: ScenarioResult) -> str:
         text += f" [{result.responses_from_cache} response(s) replayed from cache]"
     if result.split_verdicts:
         text += f", judge split on {result.split_verdicts}"
+    if result.checks_failed:
+        text += f", {result.checks_failed} failed a check"
     return text
 
 
@@ -304,7 +308,14 @@ def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
         lines.append(f"    transport error: {record.error}")
         return lines
     lines.append(f"    response: {excerpt(record.response)}")
-    if record.judge_error is not None:
+    if record.checks:
+        passed = sum(1 for outcome in record.checks if outcome.passed)
+        summary = f"{passed} of {len(record.checks)} passed"
+        lines.append(f"    checks: {summary}")
+        lines.extend(f"      failed {outcome.describe()}" for outcome in record.failed_checks)
+    if record.failed_by_checks:
+        lines.append("    judge: not called, a check decided the attempt")
+    elif record.judge_error is not None:
         lines.append(f"    judge error: {record.judge_error}")
     elif record.verdict is not None:
         votes = ""

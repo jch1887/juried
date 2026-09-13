@@ -242,17 +242,17 @@ gives you:
   `[judge]` to judge each response that many times and take the majority. The report then
   shows the number of split verdicts per scenario and the pytest summary flags them
   (`judge split on 2`). Split verdicts mean the expectation is ambiguous or the judge is
-  unreliable on it; either way, look at the wording before trusting the number. With
+  unreliable on it; either way, look at the wording before trusting the verdict. With
   votes above 1 verdicts are never read from or written to the cache, because a cached
   majority would freeze the agreement figure; every run re-judges and re-measures it, and
   the header says so (`cache off (votes > 1)`).
 
-  Be clear about what votes measure. Every vote comes from the same model with the same
-  prompt, so agreement measures the judge's stability, not its correctness. A judge that
-  is confidently wrong agrees with itself every time, and a model run at temperature 0 can
-  read 1.0 agreement on every scenario while telling you nothing about whether its
-  verdicts match a human's. Votes catch a judge that wavers; only calibration, below,
-  catches a judge that is wrong.
+  Votes measure stability, not correctness. Every vote comes from the same model with the
+  same prompt, so agreement tells you whether the judge is consistent, not whether it is
+  right. A judge that is confidently wrong agrees with itself every time, and a model run
+  at temperature 0 will show agreement of 1.0 on every scenario while saying nothing about
+  whether its verdicts match a human's. Votes catch a judge that wavers; only calibration,
+  below, catches a judge that is wrong.
 - **Calibration against human labels.** Put responses your team has judged by hand under
   `calibration/`, then run `juried calibrate`. It judges each one with the configured
   model and prints every disagreement, the accuracy, and the counts of false passes and
@@ -330,12 +330,13 @@ the judge's reason. Criteria with no scenarios are called out so coverage gaps a
 visible. The JSON file holds the same structure plus every attempt, for anyone who wants
 to chart trends.
 
-<img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report showing three scenarios, one at 7 of 10 failing because its lower bound is below the threshold" width="900">
+<img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report for the example project: totals including judge spend, two opening hours scenarios upheld at 10 of 10, and a refund scenario failed at 8 of 10 because its lower bound of 49% is below the 70% threshold" width="900">
 
-In the third row seven of ten runs passed and the observed rate meets the threshold, yet the
-gate still fails because the lower bound does not. The screenshot is from 0.1.x; since then
-the table shows passes over judged attempts and the "needs N / M" figure under the
-threshold, and the totals gained incomplete, judge error and judge spend tiles.
+The screenshot is the example project's hand written scenarios under the stub judge, which
+is why the spend is nil. The refund scenario passed eight of ten runs and its observed rate
+of 80% is above the threshold, yet the gate fails because the lower bound of 49% is not;
+the "needs 10 / 10" under the threshold says what would have been required. The warning
+above the tables is the coverage check: one criterion had no scenarios in that run.
 
 ## Try it without API keys
 

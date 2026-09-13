@@ -119,6 +119,19 @@ def test_prices_are_optional_but_paired(tmp_path: Path) -> None:
         parse_config(MINIMAL + "[judge]\ninput_price = 2\n", tmp_path, environ={})
 
 
+def test_empty_model_names_are_rejected_before_any_request(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"judge\.model must not be empty"):
+        parse_config(MINIMAL + '[judge]\nmodel = ""\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"judge\.model must not be empty"):
+        parse_config(MINIMAL, tmp_path, environ={"JURIED_JUDGE_MODEL": "  "})
+    with pytest.raises(ConfigError, match=r"generate\.model must not be empty"):
+        parse_config(MINIMAL + '[generate]\nmodel = ""\n', tmp_path, environ={})
+    assert (
+        parse_config(MINIMAL, tmp_path, environ={"JURIED_GENERATE_MODEL": "x"}).generate_model
+        == "x"
+    )
+
+
 def test_votes_must_be_odd(tmp_path: Path) -> None:
     assert parse_config(MINIMAL + "[judge]\nvotes = 3\n", tmp_path, environ={}).judge.votes == 3
     with pytest.raises(ConfigError, match="odd"):

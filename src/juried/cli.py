@@ -53,6 +53,12 @@ body = { message = "{{message}}", history = "{{history}}" }
 # Dotted path to the reply text in the JSON response, e.g. "choices.0.message.content".
 response_path = "reply"
 timeout_seconds = 30
+# For an endpoint that streams its reply: the event format and the dotted path to the
+# text delta in each event. The deltas are joined into the response and the report shows
+# the time to the first one beside the total latency.
+# stream = true
+# stream_format = "sse"
+# stream_path = "choices.0.delta.content"
 # A run costs target calls as well as judge calls. To price the target side, name the
 # paths to the token counts in its reply and the prices in US dollars per million tokens,
 # or set a flat price per call for a target that reports no tokens. Without either the

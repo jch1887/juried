@@ -187,6 +187,37 @@ def test_prices_are_optional_but_paired(tmp_path: Path) -> None:
         parse_config(MINIMAL + "[judge]\ninput_price = 2\n", tmp_path, environ={})
 
 
+def test_streaming_keys_are_validated(tmp_path: Path) -> None:
+    plain = parse_config(MINIMAL, tmp_path, environ={}).target
+    assert (plain.stream, plain.stream_format, plain.stream_path) == (False, "sse", None)
+    sse = parse_config(
+        MINIMAL + 'stream = true\nstream_path = "choices.0.delta.content"\n', tmp_path, environ={}
+    ).target
+    assert sse.stream and sse.stream_format == "sse"
+    ndjson = parse_config(
+        MINIMAL,
+        tmp_path,
+        environ={
+            "JURIED_TARGET_STREAM": "true",
+            "JURIED_TARGET_STREAM_FORMAT": "ndjson",
+            "JURIED_TARGET_STREAM_PATH": "message.content",
+        },
+    ).target
+    assert (ndjson.stream, ndjson.stream_format, ndjson.stream_path) == (
+        True,
+        "ndjson",
+        "message.content",
+    )
+    with pytest.raises(ConfigError, match=r"target\.stream_path is required when stream = true"):
+        parse_config(MINIMAL + "stream = true\n", tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"target\.stream_path needs stream = true"):
+        parse_config(MINIMAL + 'stream_path = "x"\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match="stream_format"):
+        parse_config(
+            MINIMAL + 'stream = true\nstream_path = "x"\nstream_format = "grpc"\n', tmp_path
+        )
+
+
 def test_target_pricing_keys_are_validated(tmp_path: Path) -> None:
     plain = parse_config(MINIMAL, tmp_path, environ={}).target
     assert plain.prices is None and plain.usage_paths is None and not plain.priced

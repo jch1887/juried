@@ -4,7 +4,7 @@ import asyncio
 import concurrent.futures
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,6 +33,7 @@ class TargetRequest:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: bool = False
+    first_token_ms: float | None = None
 
     @property
     def usage(self) -> TargetUsage:
@@ -53,6 +54,9 @@ class TargetRequest:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "error": self.error,
+            "first_token_ms": (
+                None if self.first_token_ms is None else round(self.first_token_ms, 1)
+            ),
         }
 
 
@@ -74,6 +78,8 @@ class RunRecord:
     verdict_cached: bool = False
     elapsed_ms: float = 0.0
     response_ms: float | None = None
+    # Time to the first text delta of the final response, for a streaming target.
+    first_token_ms: float | None = None
 
     @property
     def passed(self) -> bool:
@@ -136,6 +142,9 @@ class RunRecord:
             "verdict_cached": self.verdict_cached,
             "elapsed_ms": round(self.elapsed_ms, 1),
             "response_ms": None if self.response_ms is None else round(self.response_ms, 1),
+            "first_token_ms": (
+                None if self.first_token_ms is None else round(self.first_token_ms, 1)
+            ),
         }
 
 
@@ -144,6 +153,12 @@ class Latency:
     measured: int
     mean_ms: float
     max_ms: float
+
+    @classmethod
+    def of(cls, samples: list[float]) -> Latency:
+        if not samples:
+            return cls(0, 0.0, 0.0)
+        return cls(len(samples), sum(samples) / len(samples), max(samples))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -257,10 +272,13 @@ class ScenarioResult:
 
     @property
     def latency(self) -> Latency:
-        measured = [run.response_ms for run in self.runs if run.response_ms is not None]
-        if not measured:
-            return Latency(0, 0.0, 0.0)
-        return Latency(len(measured), sum(measured) / len(measured), max(measured))
+        return Latency.of([run.response_ms for run in self.runs if run.response_ms is not None])
+
+    @property
+    def first_token_latency(self) -> Latency:
+        return Latency.of(
+            [run.first_token_ms for run in self.runs if run.first_token_ms is not None]
+        )
 
     def to_dict(self) -> dict[str, Any]:
         interval = self.interval
@@ -293,7 +311,10 @@ class ScenarioResult:
             "split_verdicts": self.split_verdicts,
             "usage": self.usage.to_dict(),
             "target_usage": self.target_usage.to_dict(),
-            "latency": self.latency.to_dict(),
+            "latency": {
+                **self.latency.to_dict(),
+                "first_token": self.first_token_latency.to_dict(),
+            },
             "attempts": [run.to_dict() for run in self.runs],
         }
 
@@ -379,8 +400,9 @@ class Runner:
         # Each turn is answered live and its reply becomes context for the next, so the
         # feature is driven through the conversation rather than handed a script.
         conversation: list[Turn] = list(scenario.history)
-        for step, text in enumerate([*scenario.turns, scenario.message]):
-            reply = await self._send(resources, record, text, conversation, attempt, step)
+        steps = [*scenario.turns, scenario.message]
+        for step, text in enumerate(steps):
+            reply = await self._send(resources, record, text, conversation, attempt, step, steps)
             if reply is None:
                 record.elapsed_ms = (time.perf_counter() - started) * 1000
                 return record
@@ -431,6 +453,7 @@ class Runner:
         conversation: list[Turn],
         attempt: int,
         step: int,
+        conversation_steps: Sequence[str] = (),
     ) -> str | None:
         # Replaying responses defeats repeated sampling, so it is opt in and every
         # replayed attempt is flagged in the record, the terminal and the report.
@@ -465,9 +488,12 @@ class Runner:
                 response.bytes,
                 response.input_tokens,
                 response.output_tokens,
+                first_token_ms=response.first_token_ms,
             )
         )
         record.response_ms = (record.response_ms or 0.0) + response.elapsed_ms
+        if step == len(conversation_steps) - 1:
+            record.first_token_ms = response.first_token_ms
         if replay:
             self.cache.put(
                 "responses", key, {"text": response.text, "status_code": response.status_code}

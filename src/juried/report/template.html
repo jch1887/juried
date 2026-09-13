@@ -119,7 +119,7 @@
       <td class="num">{{ scenario.required_passes }} / {{ scenario.runs }}<br><span class="meta">{{ scenario.misses }} miss{{ 'es' if scenario.misses != 1 else '' }}</span></td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
       <td class="num">{{ scenario.interval.lower | percent }} to {{ scenario.interval.upper | percent }}</td>
-      <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% else %}<span class="meta">not measured</span>{% endif %}</td>
+      <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% if scenario.latency.first_token.measured %}<br><span class="meta">first token {{ scenario.latency.first_token.mean_ms | round | int }} ms</span>{% endif %}{% else %}<span class="meta">not measured</span>{% endif %}</td>
       <td class="{{ scenario.status }}">{{ scenario.status }}</td>
     </tr>
   {% endfor %}

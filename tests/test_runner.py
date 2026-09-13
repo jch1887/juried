@@ -53,7 +53,7 @@ class ScriptedTarget:
         reply = self.replies[index % len(self.replies)]
         if isinstance(reply, Exception):
             raise reply
-        return TargetResponse(reply, 200, 1.0, None, len(reply), 40, 15)
+        return TargetResponse(reply, 200, 1.0, None, len(reply), 40, 15, first_token_ms=0.4)
 
 
 class SplitProvider(StubProvider):
@@ -199,6 +199,7 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
             "input_tokens": None,
             "output_tokens": None,
             "error": True,
+            "first_token_ms": None,
         }
     ]
     assert data["attempts"][0]["requests"][0]["status_code"] == 200
@@ -212,7 +213,14 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
     assert data["target_usage"]["requests"] == 3
     assert data["target_usage"]["counted"] == 2
     assert result.target_usage.input_tokens == 80
-    assert data["latency"] == {"measured": 2, "mean_ms": 1.0, "max_ms": 1.0}
+    assert data["latency"] == {
+        "measured": 2,
+        "mean_ms": 1.0,
+        "max_ms": 1.0,
+        "first_token": {"measured": 2, "mean_ms": 0.4, "max_ms": 0.4},
+    }
+    assert data["attempts"][0]["first_token_ms"] == 0.4
+    assert data["attempts"][0]["requests"][0]["first_token_ms"] == 0.4
     assert data["judged"] == 2
     assert data["status"] == "incomplete"
 

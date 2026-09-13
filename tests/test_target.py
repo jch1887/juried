@@ -86,6 +86,7 @@ def make_target(
     response_path: str = "reply",
     environ: dict[str, str] | None = None,
     usage_paths: tuple[str, str] | None = None,
+    stream: tuple[str, str] | None = None,
 ) -> tuple[HttpTarget, httpx.AsyncClient]:
     config = TargetConfig(
         url="http://bot.test/chat",
@@ -94,6 +95,9 @@ def make_target(
         retries=retries,
         usage_input_path=None if usage_paths is None else usage_paths[0],
         usage_output_path=None if usage_paths is None else usage_paths[1],
+        stream=stream is not None,
+        stream_format="sse" if stream is None else stream[0],  # type: ignore[arg-type]
+        stream_path=None if stream is None else stream[1],
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return HttpTarget(config, client, environ=environ or {"KEY": "secret"}), client
@@ -237,3 +241,106 @@ def test_against_threaded_fake_bot(fake_bot_url: str) -> None:
             return (await target.send("what are your hours?", [])).text
 
     assert "9am to 5pm" in run(go())
+
+
+def sse(*events: Any, done: bool = True) -> bytes:
+    body = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
+    return (body + ("data: [DONE]\n\n" if done else "")).encode()
+
+
+def test_sse_stream_is_joined_and_timed() -> None:
+    chunks = [
+        {"choices": [{"delta": {"role": "assistant"}}]},
+        {"choices": [{"delta": {"content": "Open "}}]},
+        {"choices": [{"delta": {"content": "9am."}}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"in": 12, "out": 3}},
+    ]
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, content=sse(*chunks), headers={"content-type": "text/event-stream"}
+        )
+
+    target, _ = make_target(
+        handler, usage_paths=("usage.in", "usage.out"), stream=("sse", "choices.0.delta.content")
+    )
+    response = run(target.send("hours?", []))
+    assert response.text == "Open 9am."
+    assert response.status_code == 200
+    assert (response.input_tokens, response.output_tokens) == (12, 3)
+    assert response.first_token_ms is not None
+    assert 0 <= response.first_token_ms <= response.elapsed_ms
+    payload = len(sse(*chunks)) - len(b"data: [DONE]\n\n")
+    assert payload - 8 <= response.bytes <= payload
+    assert seen["body"]["message"] == "hours?"
+
+
+def test_sse_parsing_follows_the_spec() -> None:
+    body = (
+        b": keep-alive comment\n"
+        b"event: message\n"
+        b"id: 1\n"
+        b'data: {"text":\n'
+        b'data: "two lines"}\n'
+        b"\n"
+        b'data:{"text": " no space"}\n\n'
+        b'data: {"text": " last"}'
+    )
+    target, _ = make_target(
+        lambda request: httpx.Response(200, content=body), stream=("sse", "text")
+    )
+    assert run(target.send("x", [])).text == "two lines no space last"
+
+
+def test_ndjson_stream() -> None:
+    body = (
+        b'{"message": {"content": "Hello"}, "done": false}\n\n'
+        b'{"message": {"content": " there"}, "done": true, "eval_count": 5, '
+        b'"prompt_eval_count": 9}\n'
+    )
+    target, _ = make_target(
+        lambda request: httpx.Response(200, content=body),
+        usage_paths=("prompt_eval_count", "eval_count"),
+        stream=("ndjson", "message.content"),
+    )
+    response = run(target.send("x", []))
+    assert response.text == "Hello there"
+    assert (response.input_tokens, response.output_tokens) == (9, 5)
+
+
+def test_stream_errors_are_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr("juried.transport.asyncio.sleep", no_sleep)
+    empty, _ = make_target(lambda request: httpx.Response(200, content=b""), stream=("sse", "t"))
+    with pytest.raises(TransportFailure, match="carried no events"):
+        run(empty.send("x", []))
+    no_text, _ = make_target(
+        lambda request: httpx.Response(200, content=sse({"other": 1})), stream=("sse", "t")
+    )
+    with pytest.raises(TargetConfigError, match=r"stream_path 't' selected no text in 1 event"):
+        run(no_text.send("x", []))
+    bad_json, _ = make_target(
+        lambda request: httpx.Response(200, content=b"data: {nope\n\n"), stream=("sse", "t")
+    )
+    with pytest.raises(TransportFailure, match="is not JSON"):
+        run(bad_json.send("x", []))
+    calls = 0
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, text="busy")
+        return httpx.Response(200, content=sse({"t": "ok"}))
+
+    retried, _ = make_target(flaky, retries=1, stream=("sse", "t"))
+    assert run(retried.send("x", [])).text == "ok"
+    assert calls == 2
+    failing, _ = make_target(lambda request: httpx.Response(500, text="boom"), stream=("sse", "t"))
+    with pytest.raises(TransportFailure, match="HTTP 500") as info:
+        run(failing.send("x", []))
+    assert info.value.status_code == 500

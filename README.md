@@ -60,6 +60,9 @@ usage_output_path = "usage.completion_tokens"
 input_price = 2.0                              # optional: US dollars per million tokens
 output_price = 10.0
 # cost_per_request = 0.002                     # or a flat price per call
+# stream = true                                # the endpoint streams its reply
+# stream_format = "sse"                        # or "ndjson"
+# stream_path = "choices.0.delta.content"      # text delta in each event
 
 [run]
 runs = 20          # attempts per scenario
@@ -99,6 +102,17 @@ environment variable before the request is sent, and the run stops before any re
 the variable is unset. `response_path` is a dotted path into the JSON reply, and so are
 `usage_input_path` and `usage_output_path`, which name the token counts in it if the target
 reports them; see "What a run costs".
+
+For an endpoint that streams its reply, set `stream = true`, `stream_format` (`sse` for
+server-sent events, the shape OpenAI compatible endpoints use, or `ndjson` for one JSON
+object per line, as Ollama's own API sends) and `stream_path`, the dotted path to the text
+delta in each event, such as `choices.0.delta.content` or `message.content`. juried joins
+the deltas into the response, skips events without one (a role preamble, a finish marker,
+`[DONE]`), takes token counts from whichever event carries them, and records the time to
+the first delta as well as the whole reply; the report shows both. A stream that carries
+events but never a delta at `stream_path` stops the scenario with a message showing the
+last event, as a bad `response_path` does. Retries and `${NAME}` work as for a plain
+endpoint. The example bot streams when started with `python server.py --sse`.
 
 `[generate]` takes `provider`, `model`, `temperature`, `base_url`, `api_key_env`,
 `scenarios_per_criterion` and `max_tokens`. `provider` and `model` default to the judge's,
@@ -386,8 +400,8 @@ After a run juried writes `reports/juried-report.html` and `reports/juried-repor
 The HTML is a single self contained file with no scripts. It opens with one row of totals,
 states the gate rule once above the first table, then lists each acceptance criterion with
 its description, a table of its scenarios showing passes over judged attempts, the passes
-the gate needs and the misses tolerated, pass rate, interval, response latency and gate
-result, and beneath the table each scenario's message, expectation and every failing run
+the gate needs and the misses tolerated, pass rate, interval, response latency (with the
+time to first token for a streaming target) and gate result, and beneath the table each scenario's message, expectation and every failing run
 with the response and the judge's reason. Criteria with no scenarios are called out so
 coverage gaps are visible. The JSON file holds the same structure plus every attempt, for
 anyone who wants to chart trends.

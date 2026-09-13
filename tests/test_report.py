@@ -60,7 +60,11 @@ def results() -> list[ScenarioResult]:
             Gate(3, 1),
             [
                 RunRecord(
-                    1, "Refunds within 14 days.", verdict=verdict(True, "ok"), response_ms=820.4
+                    1,
+                    "Refunds within 14 days.",
+                    verdict=verdict(True, "ok"),
+                    response_ms=820.4,
+                    first_token_ms=210.0,
                 ),
                 RunRecord(
                     2,
@@ -180,7 +184,12 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert refunds["failures"][0]["agreement"] == 1.0
     assert refunds["failures"][1]["agreement"] is None
     assert refunds["judge_agreement"] == 1.0
-    assert refunds["latency"] == {"measured": 2, "mean_ms": 1065.2, "max_ms": 1310.0}
+    assert refunds["latency"] == {
+        "measured": 2,
+        "mean_ms": 1065.2,
+        "max_ms": 1310.0,
+        "first_token": {"measured": 1, "mean_ms": 210.0, "max_ms": 210.0},
+    }
     assert scenario["latency"]["measured"] == 0
 
 
@@ -253,6 +262,7 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "attempt 2</span>failed</p>" in html
     assert "1065 ms" in html
     assert "max 1310 ms" in html
+    assert "first token 210 ms" in html
     assert html.count('<span class="meta">not measured</span>') == 1
     assert "replayed" not in html
     assert "<details open>" in html

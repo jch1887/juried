@@ -44,6 +44,14 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- Streaming targets. `[target] stream = true` with `stream_format` (`sse` or `ndjson`)
+  and `stream_path`, the dotted path to the text delta in each event, reads the reply as
+  it arrives: the deltas are joined into the response, events without one are skipped,
+  token counts are taken from whichever event carries them, and the time to the first
+  delta is recorded on every request and attempt as `first_token_ms`. Scenario `latency`
+  in the JSON report gains a `first_token` entry and the HTML latency column shows it.
+  The example bot streams as server-sent events with `python server.py --sse` and takes
+  `--port`, and a test drives the real target against it.
 - `[judge] api_key_env` and `[generate] api_key_env` name the environment variable holding
   the provider's key when it is not `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, so a second
   account, a proxy or a local endpoint can have its own; generation inherits the judge's

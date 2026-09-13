@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -108,20 +109,30 @@ class Provider(ABC):
 
 
 class LLMProvider(Provider):
+    # The environment variable the provider reads its key from unless api_key_env names
+    # another, so a second account or a proxy can have its own without juried reading a
+    # secret from disk.
+    default_api_key_env: str
+
     def __init__(
         self,
         model: str,
         temperature: float | None,
         max_tokens: int,
         base_url: str | None = None,
+        api_key_env: str | None = None,
         timeout_seconds: float = 120.0,
     ) -> None:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.base_url = base_url
+        self.api_key_env = api_key_env or self.default_api_key_env
         self.timeout_seconds = timeout_seconds
         self._client: httpx.AsyncClient | None = None
+
+    def api_key(self) -> str:
+        return require_env(dict(os.environ), self.api_key_env, self.name)
 
     @property
     def client(self) -> httpx.AsyncClient:

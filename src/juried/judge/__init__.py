@@ -19,13 +19,14 @@ def build_provider(
     temperature: float | None = None,
     max_tokens: int = 2048,
     base_url: str | None = None,
+    api_key_env: str | None = None,
 ) -> Provider:
     if name == "stub":
         return StubProvider(model)
     if name == "anthropic":
-        return AnthropicProvider(model, temperature, max_tokens, base_url)
+        return AnthropicProvider(model, temperature, max_tokens, base_url, api_key_env)
     if name == "openai":
-        return OpenAIProvider(model, temperature, max_tokens, base_url)
+        return OpenAIProvider(model, temperature, max_tokens, base_url, api_key_env)
     raise ProviderError(f"unknown provider {name!r}")
 
 

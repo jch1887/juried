@@ -145,8 +145,19 @@ class JudgeConfig(StrictModel):
     model: str = "claude-sonnet-5"
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int = Field(default=2048, ge=1)
+    # Any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure OpenAI with
+    # its path) works through the openai provider with its base URL here.
     base_url: str | None = None
+    # The environment variable holding the key; defaults to the provider's own.
+    api_key_env: str | None = None
     votes: int = Field(default=1, ge=1)
+
+    @field_validator("base_url", "api_key_env")
+    @classmethod
+    def optional_strings_are_not_blank(cls, value: str | None, info: Any) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError(f"judge.{info.field_name} must not be empty; omit it for the default")
+        return value.strip() if value is not None else None
 
     # An empty model name would otherwise reach the provider and come back as an HTTP 400
     # quoting the provider's own validator, which is far less clear than this.
@@ -192,14 +203,17 @@ class GenerateConfig(StrictModel):
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     base_url: str | None = None
+    api_key_env: str | None = None
     scenarios_per_criterion: int = Field(default=4, ge=1)
 
-    @field_validator("model")
+    @field_validator("model", "base_url", "api_key_env")
     @classmethod
-    def model_is_not_empty(cls, value: str | None) -> str | None:
+    def optional_strings_are_not_blank(cls, value: str | None, info: Any) -> str | None:
         if value is not None and not value.strip():
-            raise ValueError("generate.model must not be empty; omit it to use the judge's")
-        return value
+            raise ValueError(
+                f"generate.{info.field_name} must not be empty; omit it to use the judge's"
+            )
+        return value.strip() if value is not None else None
 
     max_tokens: int = Field(default=4096, ge=1)
 
@@ -267,6 +281,12 @@ class Config(StrictModel):
         if self.generate.base_url is not None:
             return self.generate.base_url
         return self.judge.base_url if self.generate_provider == self.judge.provider else None
+
+    @property
+    def generate_api_key_env(self) -> str | None:
+        if self.generate.api_key_env is not None:
+            return self.generate.api_key_env
+        return self.judge.api_key_env if self.generate_provider == self.judge.provider else None
 
 
 class ConfigError(Exception):

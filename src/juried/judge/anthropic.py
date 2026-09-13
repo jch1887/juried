@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from juried.judge.base import (
-    LLMProvider,
-    ProviderError,
-    parse_json_object,
-    require_env,
-    usage_from,
-)
+from juried.judge.base import LLMProvider, ProviderError, parse_json_object, usage_from
 from juried.pricing import Usage
 
 DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -18,11 +11,12 @@ API_VERSION = "2023-06-01"
 
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
+    default_api_key_env = "ANTHROPIC_API_KEY"
 
     async def complete_json(
         self, system: str, user: str, schema: dict[str, Any], max_tokens: int
     ) -> tuple[dict[str, Any], Usage]:
-        api_key = require_env(dict(os.environ), "ANTHROPIC_API_KEY", self.name)
+        api_key = self.api_key()
         body: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens,

@@ -44,6 +44,15 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- `[judge] api_key_env` and `[generate] api_key_env` name the environment variable holding
+  the provider's key when it is not `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, so a second
+  account, a proxy or a local endpoint can have its own; generation inherits the judge's
+  while the provider is the same, as it does `base_url`. With `provider = "openai"` and
+  `base_url` any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure
+  OpenAI with its path) serves as judge and generator: against a custom `base_url` the
+  client sends `max_tokens`, which those servers know, rather than `max_completion_tokens`.
+  The live provider workflow sends one judge call to a local Ollama when the runner has
+  one and prints a notice, not a failure, when it does not.
 - `juried compare` prints, after the findings, the smallest drop the two runs' sizes could
   have detected at the given alpha with 80% power from a 90% pass rate, so a green
   comparison at 20 runs is not mistaken for proof that nothing moved.

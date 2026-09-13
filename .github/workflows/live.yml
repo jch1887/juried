@@ -2,7 +2,10 @@
 # written HTTP requests, so this is the only thing that notices an upstream field change.
 # It costs a few cents per run, so it runs weekly and on demand rather than on every push.
 # A provider whose key is missing is skipped by the tests, and in this repository a skipped
-# provider fails the run, so a green badge means both clients were exercised.
+# provider fails the run, so a green badge means both clients were exercised. One further
+# test sends a judge request through the openai client to a local Ollama, standing in for
+# every OpenAI compatible endpoint; a runner without one skips it with a notice, not a
+# failure, and a self hosted runner with Ollama and the model pulled exercises it.
 name: Live provider contract
 
 on:
@@ -31,14 +34,21 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           JURIED_LIVE_ANTHROPIC_MODEL: ${{ vars.JURIED_LIVE_ANTHROPIC_MODEL }}
           JURIED_LIVE_OPENAI_MODEL: ${{ vars.JURIED_LIVE_OPENAI_MODEL }}
-      - name: Fail if a provider was skipped
+          JURIED_LIVE_OLLAMA_BASE_URL: ${{ vars.JURIED_LIVE_OLLAMA_BASE_URL }}
+          JURIED_LIVE_OLLAMA_MODEL: ${{ vars.JURIED_LIVE_OLLAMA_MODEL }}
+      - name: Fail if a provider was skipped, notice if there was no Ollama
         shell: bash
         run: |
-          if grep -q SKIPPED live-pytest.log; then
+          if grep -qE '(ANTHROPIC|OPENAI)_API_KEY is not set' live-pytest.log; then
             grep -oE '(ANTHROPIC|OPENAI)_API_KEY is not set' live-pytest.log | sort -u \
               | sed 's/^/::error::provider skipped, repository secret missing: /'
             echo "::error::a skipped provider is a failure in this repository; see live-pytest.log"
             exit 1
+          fi
+          if grep -qE 'no Ollama at|has no model' live-pytest.log; then
+            grep -oE '(no Ollama at|Ollama at) [^:]*[^ ]*.*' live-pytest.log | sort -u | head -1 \
+              | sed 's/^/::notice::OpenAI compatible endpoint test skipped: /'
+            echo "::notice::start Ollama on a self hosted runner, or point JURIED_LIVE_OLLAMA_BASE_URL at one, to exercise it"
           fi
       # The log is the evidence that a green run exercised both providers rather than
       # skipping them, so it is kept even when the run fails.

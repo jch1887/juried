@@ -50,7 +50,12 @@ class JuriedState:
         if self._runner is None:
             judge = self.config.judge
             provider = build_provider(
-                judge.provider, judge.model, judge.temperature, judge.max_tokens, judge.base_url
+                judge.provider,
+                judge.model,
+                judge.temperature,
+                judge.max_tokens,
+                judge.base_url,
+                judge.api_key_env,
             )
             self._runner = Runner(self.config, provider, self.cache)
         return self._runner

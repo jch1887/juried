@@ -149,6 +149,30 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_api_key_env_follows_base_url_rules(tmp_path: Path) -> None:
+    plain = parse_config(MINIMAL, tmp_path, environ={})
+    assert plain.judge.api_key_env is None
+    assert plain.generate_api_key_env is None
+    text = MINIMAL + '[judge]\nprovider = "openai"\nmodel = "llama3.2"\n'
+    text += 'base_url = "http://127.0.0.1:11434/v1"\napi_key_env = "OLLAMA_API_KEY"\n'
+    local = parse_config(text, tmp_path, environ={})
+    assert local.judge.api_key_env == "OLLAMA_API_KEY"
+    # Generation inherits the key variable with the provider, as it does the base URL.
+    assert local.generate_api_key_env == "OLLAMA_API_KEY"
+    other = parse_config(text + '[generate]\nprovider = "anthropic"\n', tmp_path, environ={})
+    assert other.generate_api_key_env is None
+    own = parse_config(text + '[generate]\napi_key_env = "SECOND_KEY"\n', tmp_path, environ={})
+    assert own.generate_api_key_env == "SECOND_KEY"
+    env = parse_config(MINIMAL, tmp_path, environ={"JURIED_JUDGE_API_KEY_ENV": " MY_KEY "})
+    assert env.judge.api_key_env == "MY_KEY"
+    with pytest.raises(ConfigError, match=r"judge\.api_key_env must not be empty"):
+        parse_config(MINIMAL + '[judge]\napi_key_env = ""\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"judge\.base_url must not be empty"):
+        parse_config(MINIMAL + '[judge]\nbase_url = " "\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match=r"generate\.api_key_env must not be empty"):
+        parse_config(MINIMAL + '[generate]\napi_key_env = ""\n', tmp_path, environ={})
+
+
 def test_prices_are_optional_but_paired(tmp_path: Path) -> None:
     assert parse_config(MINIMAL, tmp_path, environ={}).judge.prices is None
     paired = parse_config(MINIMAL + "[judge]\ninput_price = 2\noutput_price = 10\n", tmp_path)

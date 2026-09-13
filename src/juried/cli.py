@@ -91,6 +91,11 @@ report_dir = "reports"
 # no key and passes when the response contains every "quoted phrase" in expected.
 provider = "anthropic"
 model = "claude-sonnet-5"
+# Any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure OpenAI with
+# its path) works as the judge with provider = "openai" and its URL here. api_key_env
+# names the variable holding the key when it is not the provider's default.
+# base_url = "http://127.0.0.1:11434/v1"
+# api_key_env = "OLLAMA_API_KEY"
 # Set temperature only for a model that accepts it; claude-sonnet-5 rejects the parameter.
 # temperature = 0.0
 # Each response is judged once. Set an odd number above 1 to judge it that many times and
@@ -294,6 +299,7 @@ def command_generate(explicit: str | None, only: list[str] | None, force: bool) 
         config.generate_temperature,
         config.generate.max_tokens,
         config.generate_base_url,
+        config.generate_api_key_env,
     )
     print(f"generating scenarios with {provider.name}/{provider.model}")
     outcome = generate_scenarios(
@@ -319,7 +325,12 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     cases = load_calibration(config.calibration_path, {c.id: c for c in criteria})
     judge = config.judge
     provider = build_provider(
-        judge.provider, judge.model, judge.temperature, judge.max_tokens, judge.base_url
+        judge.provider,
+        judge.model,
+        judge.temperature,
+        judge.max_tokens,
+        judge.base_url,
+        judge.api_key_env,
     )
     votes = f", {judge.votes} votes each" if judge.votes > 1 else ""
     print(

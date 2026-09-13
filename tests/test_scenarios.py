@@ -28,7 +28,7 @@ scenarios:
         content: Hello, how can I help?
     expected: Gives the hours rather than guessing whether it is open now.
     runs: 3
-    threshold: 0.5
+    misses: 1
     tags: [informal]
   - criterion: other
     name: Attached elsewhere
@@ -50,7 +50,8 @@ def test_parse_file() -> None:
     late = scenarios[1]
     assert late.history[1].role == "assistant"
     assert late.runs == 3
-    assert late.threshold == 0.5
+    assert late.misses == 1
+    assert late.threshold is None
     assert late.tags == ["informal"]
     assert scenarios[2].criterion == "other"
 
@@ -118,6 +119,7 @@ def test_dump_round_trip() -> None:
     assert text.startswith("criterion: c\nscenarios:\n- id: c-one\n  name: One\n")
     assert "history" not in text
     assert "threshold" not in text
+    assert "misses" not in text
     reloaded = parse_scenario_file(text)
     assert [s.model_dump() for s in reloaded] == [s.model_dump() for s in scenarios]
 

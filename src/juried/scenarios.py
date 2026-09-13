@@ -37,6 +37,8 @@ class Scenario(ScenarioDraft):
     # User messages sent one at a time before `message`, each answered live by the feature.
     turns: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
     runs: int | None = Field(default=None, ge=1)
+    misses: int | None = Field(default=None, ge=0)
+    # Deprecated since 0.3: misses is derived from it. Removed in 0.4.
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     tags: list[str] = Field(default_factory=list)
     source: Path | None = Field(default=None, exclude=True)

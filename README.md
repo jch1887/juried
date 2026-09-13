@@ -56,7 +56,7 @@ response_path = "choices.0.message.content"
 
 [run]
 runs = 20          # attempts per scenario
-threshold = 0.7    # floor on the lower bound of the Wilson 95% interval, not a pass rate
+misses = 1         # failed attempts a scenario may have and still pass
 concurrency = 4    # requests in flight to the target, across all scenarios
 
 [judge]
@@ -96,7 +96,7 @@ When the bot cannot answer it says so and gives help@example.com.
 ```
 
 Generated and hand written scenarios share one YAML shape. Hand written files go
-anywhere under `scenarios/`; `runs` and `threshold` may be set per scenario.
+anywhere under `scenarios/`; `runs` and `misses` may be set per scenario.
 
 ```yaml
 criterion: refund-policy
@@ -115,7 +115,7 @@ scenarios:
     message: and refunds?
     expected: Explains the 14 day refund window without repeating the delivery answer.
     runs: 20
-    threshold: 0.8
+    misses: 0
 ```
 
 Add `turns` for a live conversation before `message`; see the conversation fields below.
@@ -171,39 +171,25 @@ under a file lock, so `pytest-xdist` workers do not interleave lines.
 ## How a scenario passes
 
 Each scenario runs `runs` times. The judge marks each response pass or fail with a one
-line reason, using a fixed prompt and the configured temperature, if any. juried computes the
-pass rate and its Wilson 95% interval, and the scenario passes when the lower bound meets
-`threshold`.
+line reason, using a fixed prompt and the configured temperature, if any. The scenario passes
+when no more than `misses` of those attempts fail, so with the defaults, `runs = 20` and
+`misses = 1`, it needs 19 passes out of 20. Set `misses = 0` to require every attempt to
+pass, or raise `runs` and `misses` together to tolerate the same miss rate on more evidence.
 
-**The threshold is not a pass rate.** It is a floor on the lower bound of the confidence
-interval, and with a small number of runs that bound sits well below the observed rate.
-**With the defaults, `runs = 20` and `threshold = 0.7`, a scenario must pass 19 times out
-of 20: one miss is tolerated.** The default used to be 10 runs, which tolerated none: 9/10
-has a lower bound of 0.60 and fails the gate, so a 90% pass rate failed. Twenty runs cost
-twice as much per scenario but spare you that surprise. Tolerating more misses means
-running more times:
-
-| runs | threshold | passes needed | misses tolerated |
-|-----:|----------:|--------------:|-----------------:|
-|   10 |       0.7 |            10 |                0 |
-|   20 |       0.7 |            19 |                1 |
-|   30 |       0.7 |            26 |                4 |
-|   50 |       0.7 |            42 |                8 |
-|  100 |       0.7 |            79 |               21 |
-|   10 |       0.5 |             9 |                1 |
-|   20 |       0.8 |            20 |                0 |
-|   50 |       0.8 |            46 |                4 |
-|   10 |       0.9 |  never passes |                  |
+```toml
+[run]
+runs = 50
+misses = 3    # gate needs 47/50 passes
+```
 
 juried prints what the gate needs at the top of every run
-(`juried: gate needs 19/20 passes at threshold 0.70 (1 miss tolerated)`), repeats it in
-every gate failure, shows it under the threshold in the report, and warns when a gate can
-never pass, as with 10 runs at 0.9 where even a perfect score has a lower bound of 0.72.
-Decide on the number of misses you are willing to accept, then pick `runs` from the table;
-raising `threshold` alone only makes the gate stricter.
+(`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
+and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
+release: juried derives `misses` from it and prints a notice naming the value to set instead.
+`docs/upgrading-0.3.md` has the details.
 
-A failing gate is a normal pytest failure that shows the pass rate, the interval, the
-threshold and the first failing transcript with the judge's reason.
+A failing gate is a normal pytest failure that shows the passes, the misses tolerated, the
+interval and the first failing transcript with the judge's reason.
 
 Errors are kept out of the maths. An HTTP error from your endpoint is a transport error
 and a judge that cannot answer (missing key, refusal, API outage) is a judge error; neither
@@ -329,20 +315,28 @@ findings to a file.
 After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.
 The HTML is a single self contained file with no scripts. It opens with one row of totals,
 states the gate rule once above the first table, then lists each acceptance criterion with
-its description, a table of its scenarios showing passes over judged attempts, pass rate,
-interval, threshold with the passes it needs, response latency and gate result, and beneath
-the table each scenario's message, expectation and every failing run with the response and
-the judge's reason. Criteria with no scenarios are called out so coverage gaps are
-visible. The JSON file holds the same structure plus every attempt, for anyone who wants
-to chart trends.
+its description, a table of its scenarios showing passes over judged attempts, the passes
+the gate needs and the misses tolerated, pass rate, interval, response latency and gate
+result, and beneath the table each scenario's message, expectation and every failing run
+with the response and the judge's reason. Criteria with no scenarios are called out so
+coverage gaps are visible. The JSON file holds the same structure plus every attempt, for
+anyone who wants to chart trends.
+
+**Reading the interval.** Next to every pass rate the report shows its Wilson 95% interval,
+computed over the attempts that reached a verdict. It describes how far the rate could move
+on another sample and does not decide the gate: at 20 runs it is about 20 points wide, so
+18 of 20 is reported as 90% with an interval of 70% to 97%, and two runs whose intervals
+overlap have not been shown to differ. The JSON report also carries `threshold`, the lower
+bound the gate is equivalent to, for dashboards that plotted it before 0.3.
 
 <img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report for the example project: totals including judge spend, two opening hours scenarios upheld at 10 of 10, and a refund scenario failed at 8 of 10 because its lower bound of 49% is below the 70% threshold" width="900">
 
 The screenshot is the example project's hand written scenarios under the stub judge, which
-is why the spend is nil. The refund scenario passed eight of ten runs and its observed rate
-of 80% is above the threshold, yet the gate fails because the lower bound of 49% is not;
-the "needs 10 / 10" under the threshold says what would have been required. The warning
-above the tables is the coverage check: one criterion had no scenarios in that run.
+is why the spend is nil, taken with juried 0.2.1, when the gate was a threshold on the
+lower bound. The refund scenario passed eight of ten runs and fails its gate; in 0.3 the
+same table shows the passes the gate needs (9 of 10 in the example) in place of the
+threshold and lower bound columns. The warning above the tables is the coverage check: one
+criterion had no scenarios in that run.
 
 ## Try it without API keys
 
@@ -392,7 +386,8 @@ change to any of them is a new major version:
 - `juried.toml`: every key, its type, its default and its meaning. New keys may be added;
   existing keys are not removed or repurposed.
 - The scenario YAML shape: `criterion`, `scenarios`, and each scenario's `id`, `name`,
-  `kind`, `message`, `expected`, `history`, `turns`, `runs`, `threshold` and `tags`.
+  `kind`, `message`, `expected`, `history`, `turns`, `runs`, `misses` and `tags`.
+  `threshold` is deprecated and is removed in 0.4.
 - The calibration YAML shape: `criterion`, `cases`, and each case's `name`, `criterion`,
   `message`, `history`, `expected`, `response`, `verdict` and `note`.
 - The JSON report and the calibration report, governed by their `schema_version` field.
@@ -402,7 +397,8 @@ change to any of them is a new major version:
   their exit codes, and the pass through of pytest arguments from `run`.
 - The pytest markers `juried`, `criterion(id)`, `happy_path`, `edge_case` and `custom`, and
   the `user_properties` written to JUnit XML: `criterion`, `passes`, `runs`, `pass_rate`,
-  `interval_lower`, `interval_upper`, `threshold` and `transport_errors`.
+  `interval_lower`, `interval_upper`, `misses_tolerated`, `passes_needed`, `threshold` and
+  `transport_errors`.
 - The `JURIED_*` environment variables: `JURIED_<SECTION>_<KEY>` overrides for every config
   key, and `JURIED_LIVE`.
 

@@ -6,16 +6,22 @@ from typing import Any
 import pytest
 
 from juried.cli import main
-from juried.compare import CompareError, check_same_schema, compare_reports, load_report
+from juried.compare import (
+    CompareError,
+    check_same_schema,
+    compare_reports,
+    load_report,
+    summary,
+)
 
 
 def entry(
-    scenario_id: str, passes: int, judged: int, threshold: float = 0.7, errors: int = 0
+    scenario_id: str, passes: int, judged: int, misses: int = 1, errors: int = 0
 ) -> dict[str, Any]:
     from juried.stats import wilson_interval
 
     interval = wilson_interval(passes, judged)
-    upheld = errors == 0 and interval.lower >= threshold
+    upheld = errors == 0 and judged - passes <= misses
     status = "incomplete" if errors else ("upheld" if upheld else "failed")
     return {
         "id": scenario_id,
@@ -26,7 +32,8 @@ def entry(
         "passes": passes,
         "pass_rate": round(passes / judged, 4) if judged else 0.0,
         "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
-        "threshold": threshold,
+        "misses": misses,
+        "required_passes": judged + errors - misses,
         "gate_passed": upheld,
         "status": status,
     }
@@ -101,6 +108,24 @@ def test_reports_without_status_field_still_compare() -> None:
     change = compare_reports(report(old_entry), report(new_entry))[0]
     assert change.kind == "gate lost"
     assert change.to_dict()["old"]["judged"] == 20
+    assert change.to_dict()["old"]["passes_needed"] == 19
+
+
+def test_passes_needed_is_read_from_misses_threshold_or_required_passes() -> None:
+    from_misses = summary(entry("x", 20, 20, misses=3))
+    assert from_misses is not None
+    assert from_misses["passes_needed"] == 17
+    from_required = entry("x", 20, 20)
+    del from_required["misses"]
+    from_required["required_passes"] = 18
+    assert summary(from_required)["passes_needed"] == 18  # type: ignore[index]
+    from_threshold = entry("x", 20, 20)
+    del from_threshold["misses"]
+    del from_threshold["required_passes"]
+    from_threshold["threshold"] = 0.7
+    assert summary(from_threshold)["passes_needed"] == 19  # type: ignore[index]
+    del from_threshold["threshold"]
+    assert summary(from_threshold)["passes_needed"] is None  # type: ignore[index]
 
 
 def test_reports_with_different_schema_versions_are_refused(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@ response_path = "reply"
 
 [run]
 runs = 10
-threshold = 0.7
+misses = 1
 
 [judge]
 provider = "stub"

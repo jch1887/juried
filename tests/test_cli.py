@@ -37,8 +37,10 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     from juried.criteria import load_criteria
 
     config = load_config(tmp_path / "juried.toml", environ={})
-    assert config.run.threshold == 0.7
+    assert config.run.misses == 1
+    assert config.run.threshold is None
     assert config.run.runs == 20
+    assert "threshold" not in (tmp_path / "juried.toml").read_text()
     from juried.calibrate import load_calibration
 
     criteria = {c.id: c for c in load_criteria(config.criteria_path)}
@@ -52,8 +54,7 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 def write_project(directory: Path, url: str) -> None:
     (directory / "juried.toml").write_text(
-        f'[target]\nurl = "{url}/chat"\n[run]\nruns = 3\nthreshold = 0.2\n'
-        '[judge]\nprovider = "stub"\n'
+        f'[target]\nurl = "{url}/chat"\n[run]\nruns = 3\nmisses = 1\n[judge]\nprovider = "stub"\n'
     )
     (directory / "acceptance.md").write_text(ACCEPTANCE)
 
@@ -80,13 +81,15 @@ def test_generate_then_run(
         return 0
 
     monkeypatch.setattr("juried.cli.pytest.main", fake_pytest_main)
-    assert main(["run", "--runs", "5", "-k", "x", "--threshold", "0.3", "--no-cache", "-x"]) == 0
+    assert main(["run", "--runs", "5", "-k", "x", "--misses", "2", "--no-cache", "-x"]) == 0
     args = captured["args"]
     assert args[0] == f"--juried-config={tmp_path / 'juried.toml'}"
     assert args[1] == f"--rootdir={tmp_path}"
-    assert args[2:6] == ["-v", "--juried-runs=5", "--juried-threshold=0.3", "--juried-no-cache"]
+    assert args[2:6] == ["-v", "--juried-runs=5", "--juried-misses=2", "--juried-no-cache"]
     assert args[6] == str(tmp_path / "scenarios")
     assert args[7:] == ["-k", "x", "-x"]
+    assert main(["run", "--threshold", "0.3"]) == 0
+    assert "--juried-threshold=0.3" in captured["args"]
     assert main(["run", "--cache-responses"]) == 0
     assert "--juried-cache-responses" in captured["args"]
     assert main(["run"]) == 0
@@ -168,8 +171,8 @@ def test_run_end_to_end_in_subprocess(pytester: pytest.Pytester, fake_bot_url: s
     assert result.ret == 1
     result.stdout.fnmatch_lines(
         [
-            "*opening-hours-asks-hours PASSED 3/3 (lower 0.44 >= 0.20)*",
-            "*opening-hours-nonsense FAILED 0/3 (lower 0.00 < 0.20)*",
+            "*opening-hours-asks-hours PASSED 3/3 (needs 2, interval 0.44 to 1.00)*",
+            "*opening-hours-nonsense FAILED 0/3 (needs 2, interval 0.00 to 0.56)*",
             "*2 scenarios, 1 upheld, 1 failed, 0 incomplete, 0 transport errors, 0 judge errors",
         ]
     )

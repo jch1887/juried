@@ -9,6 +9,17 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Breaking changes
 
+- `juried compare` tests a drop instead of subtracting it. For each scenario in both
+  reports it runs Fisher's exact test, one sided for a decrease, on the passes and fails,
+  and a drop is a regression only when its p-value is below `--alpha` (default 0.05) and
+  the pass rate fell by at least `--min-effect` (default 0.10). Smaller or less certain
+  drops are listed under "drops within noise" with the p-value and the Newcombe 95%
+  interval for the difference, and do not fail the step; a drop in the interval's lower
+  bound alone is no longer a regression, and a rise is "improved" only on the same test
+  turned round. `--tolerance` is a deprecated alias for `--min-effect`, removed in 0.4.
+  The comparison JSON gains `schema_version` (1), `alpha`, `min_effect`,
+  `detectable_drop` and `within_noise` at the top level and `p_value`, `diff`,
+  `diff_interval` and `significant` per change; `tolerance` is gone from it.
 - The gate is a count of tolerated misses, not a threshold on the interval. `[run] misses`
   (default 1) and a per scenario `misses` say how many attempts may fail, and a scenario
   passes when `passes >= runs - misses`. The Wilson interval is still computed and shown but
@@ -33,6 +44,9 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- `juried compare` prints, after the findings, the smallest drop the two runs' sizes could
+  have detected at the given alpha with 80% power from a 90% pass rate, so a green
+  comparison at 20 runs is not mistaken for proof that nothing moved.
 - The target side of a run is counted and priced. Every request to the endpoint is recorded
   per attempt with its HTTP status, bytes and latency, and summed per scenario and per run.
   New `[target]` keys: `usage_input_path` and `usage_output_path`, dotted paths to token

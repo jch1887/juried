@@ -11,6 +11,7 @@ from juried.compare import (
     check_same_schema,
     compare_reports,
     load_report,
+    power_of,
     summary,
 )
 
@@ -49,13 +50,17 @@ def report(*entries: dict[str, Any], schema: int | None = 1) -> dict[str, Any]:
     return data
 
 
-def test_classifies_every_kind_of_change() -> None:
+def test_classifies_every_kind_of_change_in_order() -> None:
+    # Gates with 8 misses hold on both sides of "slipped" and "better", so the movement is
+    # judged by the test alone; "noisy" and "steady" move too little to be evidence.
     old = report(
         entry("lost", 20, 20),
         entry("regained", 15, 20),
         entry("broken", 20, 20),
-        entry("slipped", 20, 20),
-        entry("better", 19, 20),
+        entry("slipped", 20, 20, misses=8),
+        entry("noisy", 20, 20),
+        entry("better", 12, 20, misses=8),
+        entry("steady", 19, 20),
         entry("same", 19, 20),
         entry("gone", 20, 20),
     )
@@ -63,8 +68,10 @@ def test_classifies_every_kind_of_change() -> None:
         entry("lost", 17, 20),
         entry("regained", 20, 20),
         entry("broken", 17, 17, errors=3),
-        entry("slipped", 19, 20),
-        entry("better", 20, 20),
+        entry("slipped", 12, 20, misses=8),
+        entry("noisy", 19, 20),
+        entry("better", 20, 20, misses=8),
+        entry("steady", 20, 20),
         entry("same", 19, 20),
         entry("fresh-bad", 10, 20),
         entry("fresh-good", 20, 20),
@@ -76,27 +83,63 @@ def test_classifies_every_kind_of_change() -> None:
         ("broken", "newly incomplete"),
         ("fresh-bad", "new failing"),
         ("slipped", "dropped"),
+        ("noisy", "drop within noise"),
         ("regained", "gate regained"),
         ("better", "improved"),
         ("fresh-good", "added"),
         ("gone", "removed"),
         ("same", "unchanged"),
+        ("steady", "unchanged"),
     ]
     assert sum(1 for change in changes if change.regression) == 4
     lost = changes[0]
-    assert lost.detail == "20/20 rate 1.00 lower 0.84 upheld -> 17/20 rate 0.85 lower 0.64 failed"
+    assert lost.detail == (
+        "20/20 rate 1.00 upheld -> 17/20 rate 0.85 failed, diff -0.15 (-0.36 to +0.04), p 0.115"
+    )
     assert lost.to_dict()["old"]["gate_passed"] is True
     assert lost.to_dict()["new"]["status"] == "failed"
+    assert lost.to_dict()["significant"] is False
+    slipped = changes[3].to_dict()
+    assert slipped["p_value"] == pytest.approx(0.001638, abs=1e-6)
+    assert slipped["diff"] == -0.4
+    assert slipped["diff_interval"] == {"lower": -0.6134, "upper": -0.1575}
+    assert slipped["significant"] is True
+    noisy = changes[4]
+    assert not noisy.regression
+    assert noisy.difference is not None and noisy.difference.p_value == 0.5
+    added = changes[7].to_dict()
+    assert added["p_value"] is None and added["diff_interval"] is None
     assert changes[-1].to_dict()["regression"] is False
 
 
-def test_tolerance_hides_small_drops() -> None:
-    old = report(entry("slipped", 20, 20))
-    new = report(entry("slipped", 19, 20))
+def test_alpha_and_min_effect_decide_significance() -> None:
+    old = report(entry("slipped", 20, 20, misses=8))
+    new = report(entry("slipped", 12, 20, misses=8))
     assert compare_reports(old, new)[0].kind == "dropped"
-    assert compare_reports(old, new, tolerance=0.1)[0].kind == "unchanged"
-    assert compare_reports(new, old, tolerance=0.1)[0].kind == "unchanged"
+    assert compare_reports(old, new, alpha=0.001)[0].kind == "drop within noise"
+    assert compare_reports(old, new, min_effect=0.5)[0].kind == "drop within noise"
     assert compare_reports(new, old)[0].kind == "improved"
+    assert compare_reports(new, old, min_effect=0.5)[0].kind == "unchanged"
+    small = report(entry("slipped", 19, 20, misses=8))
+    assert compare_reports(old, small)[0].kind == "drop within noise"
+    assert compare_reports(old, small, alpha=0.6, min_effect=0.0)[0].kind == "dropped"
+
+
+def test_power_note_uses_the_smallest_scenarios() -> None:
+    assert power_of([], 0.05) is None
+    changes = compare_reports(
+        report(entry("a", 20, 20), entry("b", 48, 50)),
+        report(entry("a", 20, 20), entry("b", 47, 50), entry("c", 10, 10)),
+    )
+    power = power_of(changes, 0.05)
+    assert power is not None
+    assert (power.old_judged, power.new_judged) == (20, 20)
+    assert power.drop == pytest.approx(0.34, abs=0.01)
+    assert power.describe(0.05) == (
+        "note: at 20 vs 20 runs this comparison can only detect drops of about 34 points or "
+        "more (80% power at alpha 0.05 from a 90% pass rate); raise runs to see smaller "
+        "regressions"
+    )
 
 
 def test_reports_without_status_field_still_compare() -> None:
@@ -165,22 +208,86 @@ def test_compare_command_prints_and_exits_nonzero_on_regression(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     old, new = tmp_path / "old.json", tmp_path / "new.json"
-    old.write_text(json.dumps(report(entry("lost", 20, 20), entry("same", 20, 20))))
+    old.write_text(
+        json.dumps(
+            report(
+                entry("lost", 20, 20),
+                entry("same", 20, 20),
+                entry("wobble", 20, 20, misses=8),
+                entry("slid", 20, 20, misses=8),
+            )
+        )
+    )
     new.write_text(
-        json.dumps(report(entry("lost", 17, 20), entry("same", 20, 20), entry("extra", 20, 20)))
+        json.dumps(
+            report(
+                entry("lost", 17, 20),
+                entry("same", 20, 20),
+                entry("wobble", 18, 20, misses=8),
+                entry("slid", 12, 20, misses=8),
+                entry("extra", 20, 20),
+            )
+        )
     )
     out_json = tmp_path / "out" / "compare.json"
     assert main(["compare", str(old), str(new), "--json", str(out_json)]) == 1
     out = capsys.readouterr().out
-    assert f"comparing {old} -> {new}" in out
-    assert "regressions:\n  gate lost: lost: 20/20 rate 1.00 lower 0.84 upheld -> 17/20" in out
-    assert "other changes:\n  added: extra: new scenario, 20/20 rate 1.00 lower 0.84 upheld" in out
-    assert "1 regression(s), 0 improvement(s), 1 added or removed, 1 unchanged" in out
+    assert f"comparing {old} -> {new} (alpha 0.05, min effect 0.1)" in out
+    assert (
+        "regressions:\n  gate lost: lost: 20/20 rate 1.00 upheld -> 17/20 rate 0.85 failed, "
+        "diff -0.15 (-0.36 to +0.04), p 0.115\n"
+        "  dropped: slid: 20/20 rate 1.00 upheld -> 12/20 rate 0.60 upheld, "
+        "diff -0.40 (-0.61 to -0.16), p 0.002\n"
+        "drops within noise:\n  drop within noise: wobble: 20/20 rate 1.00 upheld -> "
+        "18/20 rate 0.90 upheld, diff -0.10 (-0.30 to +0.08), p 0.244\n"
+    ) in out
+    assert "other changes:\n  added: extra: new scenario, 20/20 rate 1.00 upheld" in out
+    assert (
+        "2 regression(s), 1 drop(s) within noise, 0 improvement(s), 1 added or removed, 1 unchanged"
+    ) in out
+    assert "note: at 20 vs 20 runs this comparison can only detect drops of about 34 points" in out
     data = json.loads(out_json.read_text())
-    assert data["regressions"] == 1
-    assert [c["kind"] for c in data["changes"]] == ["gate lost", "added"]
+    assert data["schema_version"] == 1
+    assert (data["alpha"], data["min_effect"]) == (0.05, 0.1)
+    assert data["detectable_drop"]["old_judged"] == 20
+    assert data["detectable_drop"]["drop"] == pytest.approx(0.34, abs=0.01)
+    assert data["regressions"] == 2
+    assert data["within_noise"] == 1
+    assert [c["kind"] for c in data["changes"]] == [
+        "gate lost",
+        "dropped",
+        "drop within noise",
+        "added",
+    ]
+    assert data["changes"][1]["significant"] is True
+    assert data["changes"][2]["p_value"] == pytest.approx(0.2436, abs=1e-4)
     assert data["unchanged"] == 1
     assert main(["compare", str(new), str(new)]) == 0
     assert "0 regression(s)" in capsys.readouterr().out
     assert main(["compare", str(old), str(tmp_path / "nope.json")]) == 2
     assert "cannot read" in capsys.readouterr().err
+
+
+def test_tolerance_is_a_deprecated_alias_for_min_effect(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old, new = tmp_path / "old.json", tmp_path / "new.json"
+    old.write_text(json.dumps(report(entry("slid", 20, 20, misses=8))))
+    new.write_text(json.dumps(report(entry("slid", 12, 20, misses=8))))
+    assert main(["compare", str(old), str(new)]) == 1
+    capsys.readouterr()
+    assert main(["compare", str(old), str(new), "--tolerance", "0.5"]) == 0
+    captured = capsys.readouterr()
+    assert "juried: --tolerance is deprecated and is removed in 0.4; use --min-effect 0.5" in (
+        captured.err
+    )
+    assert "(alpha 0.05, min effect 0.5)" in captured.out
+    assert "drop within noise: slid" in captured.out
+    assert main(["compare", str(old), str(new), "--min-effect", "0.5"]) == 0
+    assert "deprecated" not in capsys.readouterr().err
+    assert main(["compare", str(old), str(new), "--tolerance", "0.5", "--min-effect", "0.5"]) == 0
+    assert main(["compare", str(old), str(new), "--tolerance", "0.5", "--min-effect", "0.1"]) == 2
+    assert "disagree" in capsys.readouterr().err
+    assert main(["compare", str(old), str(new), "--alpha", "1"]) == 2
+    assert "--alpha must be between 0 and 1" in capsys.readouterr().err
+    assert main(["compare", str(old), str(new), "--alpha", "0.001"]) == 0

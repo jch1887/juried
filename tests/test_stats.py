@@ -6,7 +6,11 @@ from juried.stats import (
     best_possible_lower_bound,
     build_gate,
     deprecation_notice,
+    detectable_drop,
+    fisher_decrease_p,
     misses_from_threshold,
+    newcombe_difference,
+    normal_quantile,
     required_passes,
     wilson_interval,
 )
@@ -120,3 +124,64 @@ def test_deprecation_notice_names_the_derived_value() -> None:
         "threshold is deprecated and is removed in 0.4: threshold 0.7 with 50 runs tolerates "
         "8 misses, so set misses = 8 instead"
     )
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "p"),
+    [
+        # Fisher's lady tasting tea: 3 of 4 right against 1 of 4, one sided 0.2429.
+        ((3, 4), (1, 4), 0.242857),
+        # 9 of 12 against 1 of 12: C(10,1)C(14,11)/C(24,12) + C(14,12)/C(24,12).
+        ((9, 12), (1, 12), 0.001380),
+        # 20 of 20 against 17 of 20: only tables with 17 to 20 new passes exist, and the
+        # observed one has probability C(37,17)/C(40,20) = 20*19*18 / (40*39*38) = 3/26.
+        ((20, 20), (17, 20), 3 / 26),
+    ],
+)
+def test_fisher_p_values_match_hand_checked_tables(
+    old: tuple[int, int], new: tuple[int, int], p: float
+) -> None:
+    assert fisher_decrease_p(*old, *new) == pytest.approx(p, abs=1e-6)
+
+
+def test_fisher_edge_cases() -> None:
+    assert fisher_decrease_p(20, 20, 20, 20) == 1.0
+    assert fisher_decrease_p(20, 20, 15, 20) == pytest.approx(0.023562, abs=1e-6)
+    assert fisher_decrease_p(20, 20, 16, 20) == pytest.approx(0.053015, abs=1e-6)
+    # A rise is not evidence of a drop, so the tail runs to 1.
+    assert fisher_decrease_p(12, 20, 20, 20) == 1.0
+    assert fisher_decrease_p(0, 0, 5, 10) == 1.0
+    assert fisher_decrease_p(0, 10, 0, 10) == 1.0
+    with pytest.raises(ValueError):
+        fisher_decrease_p(21, 20, 1, 20)
+
+
+def test_newcombe_difference_interval() -> None:
+    interval = newcombe_difference(20, 20, 15, 20)
+    assert interval.lower == pytest.approx(-0.4687, abs=1e-4)
+    assert interval.upper == pytest.approx(-0.0378, abs=1e-4)
+    same = newcombe_difference(18, 20, 18, 20)
+    assert same.lower == pytest.approx(-same.upper)
+    assert same.lower == pytest.approx(-0.2136, abs=1e-4)
+    assert newcombe_difference(0, 0, 5, 10) == newcombe_difference(5, 10, 0, 0)
+    assert newcombe_difference(0, 0, 5, 10).lower == -1.0
+
+
+def test_normal_quantile_matches_tables() -> None:
+    assert normal_quantile(0.975) == pytest.approx(1.959964, abs=1e-5)
+    assert normal_quantile(0.95) == pytest.approx(1.644854, abs=1e-5)
+    assert normal_quantile(0.8) == pytest.approx(0.841621, abs=1e-5)
+    assert normal_quantile(0.5) == pytest.approx(0.0, abs=1e-9)
+    assert normal_quantile(0.01) == pytest.approx(-2.326348, abs=1e-5)
+    with pytest.raises(ValueError):
+        normal_quantile(1.0)
+
+
+def test_detectable_drop_shrinks_with_runs() -> None:
+    twenty = detectable_drop(20, 20, 0.05)
+    assert twenty == pytest.approx(0.34, abs=0.01)
+    assert detectable_drop(10, 10, 0.05) > twenty
+    assert detectable_drop(50, 50, 0.05) < twenty
+    assert detectable_drop(100, 100, 0.05) == pytest.approx(0.13, abs=0.01)
+    assert detectable_drop(20, 20, 0.01) > twenty
+    assert detectable_drop(0, 20, 0.05) == 1.0

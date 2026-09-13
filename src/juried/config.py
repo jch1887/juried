@@ -38,6 +38,11 @@ class TargetConfig(StrictModel):
     response_path: str = "reply"
     timeout_seconds: float = Field(default=30.0, gt=0)
     retries: int = Field(default=3, ge=0)
+    # A streaming endpoint sends its reply as events; the text deltas at stream_path are
+    # joined into the response and the time to the first one is recorded.
+    stream: bool = False
+    stream_format: Literal["sse", "ndjson"] = "sse"
+    stream_path: str | None = None
     # Dotted paths to token counts in the reply, when the target reports them.
     usage_input_path: str | None = None
     usage_output_path: str | None = None
@@ -62,6 +67,17 @@ class TargetConfig(StrictModel):
     @property
     def priced(self) -> bool:
         return self.prices is not None or self.cost_per_request is not None
+
+    @model_validator(mode="after")
+    def streaming_is_consistent(self) -> TargetConfig:
+        if self.stream and not (self.stream_path or "").strip():
+            raise ValueError(
+                "target.stream_path is required when stream = true: the dotted path to the "
+                'text delta in each event, e.g. "choices.0.delta.content"'
+            )
+        if not self.stream and self.stream_path is not None:
+            raise ValueError("target.stream_path needs stream = true")
+        return self
 
     @model_validator(mode="after")
     def pricing_is_consistent(self) -> TargetConfig:

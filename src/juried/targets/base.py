@@ -17,6 +17,8 @@ class TargetResponse:
     # Token counts from the reply, when [target] names the paths to them.
     input_tokens: int | None = None
     output_tokens: int | None = None
+    # Time to the first text delta, for a streaming target; None otherwise.
+    first_token_ms: float | None = None
 
 
 class Target(Protocol):

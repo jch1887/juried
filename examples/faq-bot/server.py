@@ -2,13 +2,17 @@
 
 Run it with `python server.py` and point juried at http://127.0.0.1:8765/chat. Every fourth
 refund question deliberately drops the 14 day detail, so that one scenario shows a flaky
-pass rate in the report.
+pass rate in the report. `python server.py --sse` streams each reply word by word as
+server-sent events in the shape OpenAI compatible endpoints use, for trying juried's
+streaming target; `--port` moves it off 8765.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -24,6 +28,7 @@ UNKNOWN = "I'm not sure about that. Please email help@example.com and the team w
 class Handler(BaseHTTPRequestHandler):
     refund_calls = 0
     lock = threading.Lock()
+    sse = False
 
     def do_POST(self) -> None:
         if self.path != "/chat":
@@ -44,7 +49,32 @@ class Handler(BaseHTTPRequestHandler):
             len(str(turn.get("content", "")).split()) for turn in history
         )
         usage = {"prompt_tokens": prompt_tokens, "completion_tokens": len(text.split())}
+        if Handler.sse:
+            self.stream(text, usage)
+            return
         self.reply(200, {"reply": text, "usage": usage})
+
+    # A role only first chunk, one chunk per word, a finish chunk carrying the usage, then
+    # [DONE]: the sequence an OpenAI compatible endpoint sends, with a short pause so the
+    # time to first token is visibly shorter than the whole reply.
+    def stream(self, text: str, usage: dict[str, int]) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        chunks: list[dict[str, Any]] = [{"choices": [{"delta": {"role": "assistant"}}]}]
+        words = text.split(" ")
+        chunks.extend(
+            {"choices": [{"delta": {"content": word + (" " if i < len(words) - 1 else "")}}]}
+            for i, word in enumerate(words)
+        )
+        chunks.append({"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": usage})
+        for chunk in chunks:
+            self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
+            self.wfile.flush()
+            time.sleep(0.005)
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
 
     def reply(self, status: int, body: dict[str, Any]) -> None:
         data = json.dumps(body).encode("utf-8")
@@ -74,8 +104,14 @@ def answer(message: str, history: list[dict[str, str]]) -> str:
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"faq-bot listening on http://127.0.0.1:{PORT}/chat")
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--sse", action="store_true", help="stream replies as server-sent events")
+    parser.add_argument("--port", type=int, default=PORT, help=f"port to listen on ({PORT})")
+    args = parser.parse_args()
+    Handler.sse = args.sse
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    mode = " (streaming as SSE)" if args.sse else ""
+    print(f"faq-bot listening on http://127.0.0.1:{args.port}/chat{mode}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

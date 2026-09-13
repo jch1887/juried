@@ -166,10 +166,9 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert '40%<br><span class="meta">needs 3 / 3</span>' in html
     assert "which needs 19 of 20 runs to pass" in html
     assert '<th class="num">Upper bound</th>' in html
-    assert (
-        "A scenario is upheld when the lower bound of its 95% interval meets the threshold." in html
-    )
+    assert html.count("A scenario is upheld when the lower bound of its 95% interval meets") == 1
     assert ">upheld</td>" in html
+    assert 'style="grid-template-columns: repeat(8, minmax(0, 1fr));"' in html
     assert ">incomplete</td>" in html
     assert ">failed</td>" not in html
     assert '<th class="num">Runs upheld / judged</th>' in html
@@ -195,3 +194,12 @@ def test_write_reports(tmp_path: Path) -> None:
     data = json.loads(paths.json.read_text())
     assert data["summary"]["scenarios"] == 2
     assert paths.html.read_text().startswith("<!doctype html>")
+
+
+def test_optional_tiles_split_into_two_even_rows(tmp_path: Path) -> None:
+    voting = parse_config(
+        '[target]\nurl = "http://bot/chat"\n[judge]\nprovider = "stub"\nvotes = 3\n', tmp_path
+    )
+    html = render_html(build_report(voting, [HOURS, REFUNDS], results()))
+    assert "split verdicts" in html
+    assert 'style="grid-template-columns: repeat(5, minmax(0, 1fr));"' in html

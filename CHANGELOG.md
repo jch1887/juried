@@ -7,6 +7,12 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Changed
+
+- The HTML report's totals sit on one row of tiles, or two even rows when the replay and
+  split verdict tiles apply, and the gate rule is stated once above the first table rather
+  than under every table.
+
 ## [0.2.0] - 2026-09-12
 
 ### Breaking changes

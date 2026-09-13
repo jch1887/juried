@@ -1,6 +1,8 @@
 # Contract tests against the real Anthropic and OpenAI APIs. juried talks to both with hand
 # written HTTP requests, so this is the only thing that notices an upstream field change.
 # It costs a few cents per run, so it runs weekly and on demand rather than on every push.
+# A provider whose key is missing is skipped by the tests, and in this repository a skipped
+# provider fails the run, so a green badge means both clients were exercised.
 name: Live provider contract
 
 on:
@@ -29,6 +31,15 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           JURIED_LIVE_ANTHROPIC_MODEL: ${{ vars.JURIED_LIVE_ANTHROPIC_MODEL }}
           JURIED_LIVE_OPENAI_MODEL: ${{ vars.JURIED_LIVE_OPENAI_MODEL }}
+      - name: Fail if a provider was skipped
+        shell: bash
+        run: |
+          if grep -q SKIPPED live-pytest.log; then
+            grep -oE '(ANTHROPIC|OPENAI)_API_KEY is not set' live-pytest.log | sort -u \
+              | sed 's/^/::error::provider skipped, repository secret missing: /'
+            echo "::error::a skipped provider is a failure in this repository; see live-pytest.log"
+            exit 1
+          fi
       # The log is the evidence that a green run exercised both providers rather than
       # skipping them, so it is kept even when the run fails.
       - uses: actions/upload-artifact@v4

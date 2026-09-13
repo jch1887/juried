@@ -1,6 +1,10 @@
 <p align="center">
   <img src="https://raw.githubusercontent.com/jch1887/juried/main/juried.png" alt="juried" width="360">
   <br>
+  <a href="https://github.com/jch1887/juried/actions/workflows/check.yml"><img src="https://github.com/jch1887/juried/actions/workflows/check.yml/badge.svg" alt="Check"></a>
+  <a href="https://github.com/jch1887/juried/actions/workflows/live.yml"><img src="https://github.com/jch1887/juried/actions/workflows/live.yml/badge.svg" alt="Live provider contract"></a>
+  <a href="https://pypi.org/project/juried/"><img src="https://img.shields.io/pypi/v/juried" alt="PyPI version"></a>
+  <br>
   Acceptance testing for LLM features, built for QA teams.
 </p>
 
@@ -414,10 +418,13 @@ listed under "Breaking changes" in `CHANGELOG.md` for that release.
 make check      # ruff, mypy and pytest
 ```
 
-The same target runs in CI on every pull request. A separate weekly workflow sends one
-real request per provider to check that the Anthropic and OpenAI APIs still accept what
-juried sends; see CONTRIBUTING.md for how to run it locally, and for the development
-install. Changes are recorded in `CHANGELOG.md` and the release steps in
+The same target runs in CI on every pull request. The `Live provider contract` badge at
+the top of this file shows the latest result of the live workflow, which runs weekly and
+on demand and exercises both the Anthropic and OpenAI clients with one judge call and one
+generate call each. Every run uploads the pytest output as an artifact, so a green run can
+be checked to have tested both providers rather than skipped them; in this repository a
+skipped provider fails the run. See CONTRIBUTING.md for how to run it locally, and for
+the development install. Changes are recorded in `CHANGELOG.md` and the release steps in
 `docs/releasing.md`.
 
 Licensed under the MIT licence.

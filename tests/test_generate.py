@@ -32,7 +32,9 @@ def test_generate_writes_reviewable_yaml(tmp_path: Path) -> None:
 
 def test_generated_scenarios_keep_their_history(tmp_path: Path) -> None:
     class FollowUpProvider(StubProvider):
-        async def generate(self, criterion: Criterion, count: int) -> list[ScenarioDraft]:
+        async def generate(
+            self, criterion: Criterion, count: int, adversarial: bool = False
+        ) -> list[ScenarioDraft]:
             return [
                 ScenarioDraft(
                     name="Follows up",

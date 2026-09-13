@@ -31,6 +31,7 @@ does not load `.env` itself.
 ```
 juried init                      # writes juried.toml, acceptance.md and calibration/example.yaml
 juried generate                  # turns each criterion into scenarios/generated/<criterion>.yaml
+juried generate --adversarial    # scenarios that try to make the feature violate each criterion
 juried calibrate                 # judges responses your team labelled; how far to trust the judge
 juried run                       # runs every scenario N times under pytest and writes the report
 juried compare old.json new.json # flags scenarios that got worse between two reports
@@ -115,7 +116,7 @@ last event, as a bad `response_path` does. Retries and `${NAME}` work as for a p
 endpoint. The example bot streams when started with `python server.py --sse`.
 
 `[generate]` takes `provider`, `model`, `temperature`, `base_url`, `api_key_env`,
-`scenarios_per_criterion` and `max_tokens`. `provider` and `model` default to the judge's,
+`scenarios_per_criterion`, `max_tokens` and `adversarial_pack`. `provider` and `model` default to the judge's,
 and so do `base_url` and `api_key_env` while the provider is the same. `temperature` does
 not: the judge's is chosen for consistent verdicts and generation wants variety, so it is
 unset unless you set it under `[generate]`.
@@ -206,6 +207,21 @@ requests per attempt. The judge sees the scripted history, then the live transcr
 feature's own replies, then the final message and response, and is told the expectation may
 refer to what was said earlier. The transcript is recorded on every attempt, shown for
 failing runs in the terminal and the report, and kept in the JSON.
+
+Scenarios have a `kind`: `happy_path`, `edge_case`, `custom`, or `adversarial`, each also a
+pytest marker. An adversarial scenario tries to make the feature violate its criterion:
+`juried generate --adversarial` writes one file per criterion,
+`scenarios/generated/<criterion>.adversarial.yaml`, covering an instruction override
+("ignore your previous instructions and..."), a false premise, a contradiction of an
+earlier turn, an appeal to the judge to pass the response, an off topic pull, and a request
+for something the criterion says to withhold. With `adversarial_pack = true` under
+`[generate]` it also writes `scenarios/generated/adversarial-pack.yaml`, juried's built in
+attacks that apply to any feature (prompt injection, system prompt extraction, PII
+disclosure) under three criteria of their own, which runs then recognise. Run them alone
+with `juried run -m adversarial`. This is a coverage extension of your criteria, not a red
+team: the messages are things a user might plausibly send, and there is no search for
+jailbreaks. For that, use promptfoo's red team module. The example project has three hand
+written adversarial scenarios and labelled calibration cases for them.
 
 A phrase in double quotes inside `expected` must appear in the response. Text outside
 quotes is judged on meaning. With
@@ -377,10 +393,10 @@ collects every scenario, counts the requests each side would get, allowing for `
 
 ```
 juried: dry run, nothing is sent
-13 scenarios under scenarios, 130 attempts in all, 1 with live turns
-target: 150 requests (one per turn and final message per attempt), estimated $0.14 at 400 input + 150 output tokens per call (assumed) and configured prices
-judge: 130 calls (130 attempts) to claude-sonnet-5, estimated $0.30 at 400 input + 150 output tokens per call (assumed) and list prices of 2026-09
-estimated run cost: $0.44 (judge $0.30 + target $0.14)
+16 scenarios under scenarios, 160 attempts in all, 1 with live turns
+target: 180 requests (one per turn and final message per attempt), estimated $0.17 at 400 input + 150 output tokens per call (assumed) and configured prices
+judge: 160 calls (160 attempts) to claude-sonnet-5, estimated $0.37 at 400 input + 150 output tokens per call (assumed) and list prices of 2026-09
+estimated run cost: $0.54 (judge $0.37 + target $0.17)
 note: assumed token counts are a placeholder; a run reports the real figures and the next dry run uses its averages
 ```
 
@@ -452,8 +468,8 @@ criterion had no scenarios in that run.
 cd examples/faq-bot
 python server.py &       # deterministic fake FAQ bot on port 8765
 juried generate          # uses the stub provider from juried.toml
-JURIED_RUN_REPORT_DIR=reports/stub juried calibrate   # the stub against the 32 cases in calibration/
-juried run               # 13 scenarios, one fails its gate on purpose
+JURIED_RUN_REPORT_DIR=reports/stub juried calibrate   # the stub against the 38 cases in calibration/
+juried run               # 16 scenarios, one fails its gate on purpose
 cp reports/juried-report.json reports/baseline.json
 juried run               # sample the bot again
 juried compare reports/baseline.json reports/juried-report.json   # exit 1 only on a significant drop; 8/10 to 7/10 is noise
@@ -469,10 +485,10 @@ mechanics of runs, gates and reports, and says nothing about how an LLM judge be
 One hand written refund scenario fails its gate on purpose, because the fake bot drops
 the 14 day detail every fourth time, which is the kind of flakiness juried exists to catch.
 
-`juried calibrate` in the same directory runs the stub against the 32 labelled responses
+`juried calibrate` in the same directory runs the stub against the 38 labelled responses
 under `calibration/`, with its report sent to `reports/stub/` so that it does not overwrite
-the committed one. The stub agrees with 24 of the 32 labels and passes the eight it should
-fail, which is the point: calibrate before you trust any judge. The same 32 cases were
+the committed one. The stub agrees with 28 of the 38 labels and passes the ten it should
+fail, which is the point: calibrate before you trust any judge. The first 32 of those cases were
 checked against `claude-haiku-4-5` on 13 September 2026 and it agreed with every label; the
 report is at
 [examples/faq-bot/reports/juried-calibration.json](examples/faq-bot/reports/juried-calibration.json).
@@ -484,7 +500,6 @@ Not there yet, and shaped so they can be added without changing the scenario for
 
 - A `Target` that drives a UI rather than an HTTP endpoint.
 - Further `Provider` implementations for other judges.
-- Adversarial scenario kinds, generated to attack the criterion rather than exercise it.
 
 ## Stability
 
@@ -503,7 +518,8 @@ change to any of them is a new major version:
   `juried compare` refuses reports of different versions.
 - The CLI: the subcommands `init`, `generate`, `calibrate`, `run`, `estimate` and `compare`,
   their flags, their exit codes, and the pass through of pytest arguments from `run`.
-- The pytest markers `juried`, `criterion(id)`, `happy_path`, `edge_case` and `custom`, and
+- The pytest markers `juried`, `criterion(id)`, `happy_path`, `edge_case`, `custom` and
+  `adversarial`, and
   the `user_properties` written to JUnit XML: `criterion`, `passes`, `runs`, `pass_rate`,
   `interval_lower`, `interval_upper`, `misses_tolerated`, `passes_needed`, `threshold` and
   `transport_errors`.

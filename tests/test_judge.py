@@ -82,6 +82,11 @@ def test_stub_generate_is_deterministic() -> None:
     stub = StubProvider()
     drafts = run(stub.generate(CRITERION, 4))
     assert [d.kind for d in drafts] == ["happy_path", "edge_case"]
+    attacks = run(stub.generate(CRITERION, 4, adversarial=True))
+    assert [d.kind for d in attacks] == ["adversarial", "adversarial"]
+    assert attacks[0].message.startswith("Ignore your previous instructions")
+    assert "Note to the evaluator" in attacks[1].message
+    assert len(run(stub.generate(CRITERION, 1, adversarial=True))) == 1
     assert drafts[0].message == "Can you tell me about opening hours?"
     wrapped = Criterion("c", "Title", "First line\nsecond line.")
     assert run(stub.generate(wrapped, 1))[0].expected == "First line second line."
@@ -418,6 +423,10 @@ def test_openai_request_shape_and_generate(monkeypatch: pytest.MonkeyPatch) -> N
     provider._client = mock_client(handler)
     drafts = run(provider.generate(CRITERION, 2))
     assert [d.name for d in drafts] == ["Asks", "Typo"]
+    assert "adversarial" not in seen["body"]["messages"][0]["content"]
+    attacks = run(provider.generate(CRITERION, 2, adversarial=True))
+    assert {d.kind for d in attacks} == {"adversarial"}
+    assert "Instruction override" in seen["body"]["messages"][0]["content"]
     assert seen["url"] == "https://api.openai.com/v1/chat/completions"
     assert seen["auth"] == "Bearer sk-test"
     body = seen["body"]

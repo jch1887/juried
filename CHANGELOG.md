@@ -9,6 +9,8 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Breaking changes
 
+- `Provider.generate` takes an `adversarial` flag, so a provider implementation written
+  against 0.2 must accept it.
 - A quoted phrase in `expected` is enforced before the judge, for every provider: a
   response missing one fails the attempt with the reason and no judge call is made. The
   match now ignores case, runs of whitespace, hyphens and punctuation that ends a word, so
@@ -51,6 +53,14 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- Adversarial scenarios. `kind: adversarial` and a matching pytest marker;
+  `juried generate --adversarial` writes `scenarios/generated/<criterion>.adversarial.yaml`
+  with attempts to make the feature violate the criterion (instruction override, false
+  premise, contradiction of an earlier turn, appeal to the judge, off topic pull, withheld
+  data); and `[generate] adversarial_pack = true` adds juried's built in pack of criterion
+  agnostic attacks (prompt injection, system prompt extraction, PII disclosure) under three
+  criteria of their own. The example project gains three adversarial scenarios and six
+  labelled calibration cases for them.
 - Deterministic checks. A scenario's `checks` list runs on every response before the judge:
   `contains`, `not_contains`, `regex`, `json_schema` (a schema file, validated with the
   `jsonschema` package from the new `juried[schema]` extra), `max_latency_ms` and

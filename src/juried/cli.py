@@ -56,13 +56,12 @@ scenarios_dir = "scenarios"
 calibration_dir = "calibration"
 
 [run]
-# Each scenario runs this many times. Its gate passes when the lower bound of the
-# Wilson 95% interval on the pass rate meets the threshold. The threshold is not a
-# pass rate: with runs = 20 and threshold = 0.7 the gate needs 19/20 passes, so one
-# miss is tolerated. 10 runs tolerate none (9/10 has a lower bound of 0.60), 50 runs
-# tolerate 8. juried prints what the gate needs at the start of every run.
+# Each scenario runs this many times, and passes when no more than `misses` of those
+# attempts fail: 20 runs with 1 miss means the gate needs 19/20 passes. juried prints
+# what the gate needs at the start of every run and reports the Wilson 95% interval on
+# the pass rate alongside, for reading, not for the gate.
 runs = 20
-threshold = 0.7
+misses = 1
 # All scenarios run together; this caps requests in flight to the target across them.
 concurrency = 4
 cache_dir = ".juried"
@@ -184,7 +183,12 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="run scenarios with pytest and write the report")
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
     run.add_argument("--runs", type=int, help="override run.runs")
-    run.add_argument("--threshold", type=float, help="override run.threshold")
+    run.add_argument("--misses", type=int, help="override run.misses")
+    run.add_argument(
+        "--threshold",
+        type=float,
+        help="override run.threshold (deprecated; misses is derived from it)",
+    )
     run.add_argument(
         "--no-cache", action="store_true", help="ignore cached verdicts (and responses)"
     )
@@ -341,6 +345,7 @@ def command_compare(old: str, new: str, tolerance: float, json_path: str | None)
 def command_run(
     explicit: str | None,
     runs: int | None,
+    misses: int | None,
     threshold: float | None,
     no_cache: bool,
     cache_responses: bool,
@@ -350,6 +355,8 @@ def command_run(
     args = [f"--juried-config={path}", f"--rootdir={path.parent}", "-v"]
     if runs is not None:
         args.append(f"--juried-runs={runs}")
+    if misses is not None:
+        args.append(f"--juried-misses={misses}")
     if threshold is not None:
         args.append(f"--juried-threshold={threshold}")
     if no_cache:
@@ -379,7 +386,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "compare":
             return command_compare(args.old, args.new, args.tolerance, args.json)
         return command_run(
-            args.config, args.runs, args.threshold, args.no_cache, args.cache_responses, extra
+            args.config,
+            args.runs,
+            args.misses,
+            args.threshold,
+            args.no_cache,
+            args.cache_responses,
+            extra,
         )
     except (
         ConfigError,

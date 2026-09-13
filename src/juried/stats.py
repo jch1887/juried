@@ -5,6 +5,12 @@ from dataclasses import dataclass
 
 Z_95 = 1.959963984540054
 
+# Failed attempts a scenario may have and still pass, when neither misses nor the
+# deprecated threshold is set. With the default 20 runs the gate needs 19 passes; a single
+# run, as in a smoke test, must pass, since a gate that tolerates every attempt failing
+# would never fail.
+DEFAULT_MISSES = 1
+
 
 @dataclass(frozen=True)
 class Interval:
@@ -29,28 +35,88 @@ def best_possible_lower_bound(runs: int) -> float:
     return wilson_interval(runs, runs).lower
 
 
-def gate_passes(passes: int, runs: int, threshold: float) -> bool:
-    return runs > 0 and wilson_interval(passes, runs).lower >= threshold
-
-
+# The threshold rule from before 0.3: the gate held when the interval's lower bound met the
+# threshold. It survives only to derive misses from a deprecated threshold.
 def required_passes(runs: int, threshold: float) -> int | None:
     for passes in range(runs + 1):
-        if gate_passes(passes, runs, threshold):
+        if runs > 0 and wilson_interval(passes, runs).lower >= threshold:
             return passes
     return None
 
 
-def describe_gate(runs: int, threshold: float) -> str:
+def misses_from_threshold(runs: int, threshold: float) -> int | None:
     needed = required_passes(runs, threshold)
-    if needed is None:
-        return (
-            f"with {runs} runs the best possible lower bound is "
-            f"{best_possible_lower_bound(runs):.2f}, below the threshold {threshold:.2f}, "
-            "so the gate can never be upheld. Raise runs or lower the threshold."
+    return None if needed is None else runs - needed
+
+
+class GateError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class Gate:
+    runs: int
+    misses: int
+    # The deprecated threshold this gate was derived from, when there was one.
+    threshold: float | None = None
+
+    @property
+    def passes_needed(self) -> int:
+        return self.runs - self.misses
+
+    def met(self, passes: int, judged: int) -> bool:
+        return judged > 0 and judged - passes <= self.misses
+
+    # The lower bound the gate is equivalent to: the interval of the smallest passing score.
+    # Kept for reports and dashboards that plotted the threshold.
+    @property
+    def equivalent_threshold(self) -> float:
+        if self.threshold is not None:
+            return self.threshold
+        return round(wilson_interval(self.passes_needed, self.runs).lower, 4)
+
+    def describe(self) -> str:
+        if self.misses == 0:
+            tolerated = "no misses tolerated"
+        else:
+            tolerated = f"{self.misses} miss{'es' if self.misses != 1 else ''} tolerated"
+        return f"gate needs {self.passes_needed}/{self.runs} passes ({tolerated})"
+
+
+def build_gate(runs: int, misses: int | None, threshold: float | None) -> Gate:
+    if runs < 1:
+        raise GateError(f"runs must be at least 1, not {runs}")
+    if threshold is not None:
+        derived = misses_from_threshold(runs, threshold)
+        if derived is None:
+            raise GateError(
+                f"threshold {threshold:.2f} can never be met with {runs} runs, whose best "
+                f"possible lower bound is {best_possible_lower_bound(runs):.2f}; threshold is "
+                "deprecated, set misses instead"
+            )
+        if misses is None:
+            misses = derived
+        elif misses != derived:
+            raise GateError(
+                f"misses = {misses} and threshold = {threshold} disagree: with {runs} runs "
+                f"the threshold tolerates {derived} miss{'es' if derived != 1 else ''}; "
+                "remove threshold, it is deprecated"
+            )
+    if misses is None:
+        misses = min(DEFAULT_MISSES, runs - 1)
+    if misses >= runs:
+        raise GateError(
+            f"misses = {misses} is not below runs = {runs}, so the gate could never fail; "
+            "lower misses or raise runs"
         )
-    misses = runs - needed
-    if misses == 0:
-        tolerated = "no misses tolerated"
-    else:
-        tolerated = f"{misses} miss{'es' if misses != 1 else ''} tolerated"
-    return f"gate needs {needed}/{runs} passes at threshold {threshold:.2f} ({tolerated})"
+    return Gate(runs, misses, threshold)
+
+
+def deprecation_notice(gate: Gate) -> str | None:
+    if gate.threshold is None:
+        return None
+    return (
+        f"threshold is deprecated and is removed in 0.4: threshold {gate.threshold} with "
+        f"{gate.runs} runs tolerates {gate.misses} miss{'es' if gate.misses != 1 else ''}, "
+        f"so set misses = {gate.misses} instead"
+    )

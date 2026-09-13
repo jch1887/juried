@@ -42,7 +42,7 @@ retries = 0
 
 [run]
 runs = {runs}
-threshold = 0.5
+misses = 0
 
 [judge]
 provider = "stub"
@@ -61,21 +61,21 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     result.assert_outcomes(passed=1, failed=1)
     result.stdout.re_match_lines(
         [
-            r"juried: config .*juried.toml, judge stub/stub, runs 4, threshold 0.5, "
+            r"juried: config .*juried.toml, judge stub/stub, runs 4, misses 0, "
             r"cache verdicts only, concurrency 4 target / 4 judge",
-            r"juried: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\)",
-            r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(lower 0.00 < 0.50\).*",
-            r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(lower 0.51 >= 0.50\).*",
+            r"juried: gate needs 4/4 passes \(no misses tolerated\)",
+            r".*a-nonsense.yaml::refund-policy-asks-nonsense FAILED 0/4 \(needs 4, "
+            r"interval 0.00 to 0.49\).*",
+            r".*b-hours.yaml::opening-hours-asks-hours PASSED 4/4 \(needs 4, "
+            r"interval 0.51 to 1.00\).*",
             r"juried gate failed for scenario 'refund-policy-asks-nonsense' \(Asks nonsense\)",
             r"\s+criterion: refund-policy \(Refund policy\)",
             r"\s+runs upheld: 0/4 judged = 0.00",
-            r"\s+lower bound: 0.00 \(Wilson 95% interval 0.00 to 0.49\)",
-            r"\s+threshold: 0.50, gate upheld when the lower bound meets it \(not met on the "
-            r"judged attempts\)",
+            r"\s+gate: gate needs 4/4 passes \(no misses tolerated\); 4 misses on the judged "
+            r"attempts, so the gate is not met",
+            r"\s+interval: Wilson 95% interval 0.00 to 0.49",
             r"\s+transport errors: 0",
             r"\s+judge errors: 0",
-            r"\s+note: gate needs 4/4 passes at threshold 0.50 \(no misses tolerated\); "
-            r"4 of 4 runs had to pass and 0 did",
             r"\s+first failing run: attempt 1 \(failed\)",
             r"\s+user: blorp",
             r"\s+response: I'm not sure about that, please contact support.",
@@ -92,6 +92,7 @@ def test_collects_and_reports(pytester: pytest.Pytester, fake_bot_url: str) -> N
     assert (pytester.path / ".juried" / "cache" / "verdicts").is_dir()
     assert not (pytester.path / ".juried" / "cache" / "responses").exists()
     assert "replayed from" not in result.stdout.str()
+    assert "threshold" not in result.stdout.str()
 
 
 def test_keyword_and_marker_selection(pytester: pytest.Pytester, fake_bot_url: str) -> None:
@@ -197,18 +198,89 @@ def test_junit_xml(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     }
     assert properties["passes"] == "4"
     assert properties["interval_lower"] == "0.5101"
+    assert properties["misses_tolerated"] == "0"
+    assert properties["passes_needed"] == "4"
+    assert properties["threshold"] == "0.5101"
     assert properties["criterion"] == "opening-hours"
     assert cases["opening-hours-asks-hours"].find("failure") is None
 
 
 def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
-    result = pytester.runpytest(
-        "--juried-runs=2", "--juried-threshold=0.1", "--juried-no-cache", "-v"
-    )
+    result = pytester.runpytest("--juried-runs=2", "--juried-misses=1", "--juried-no-cache", "-v")
     result.assert_outcomes(passed=1, failed=1)
-    result.stdout.re_match_lines([r"juried: config .*, runs 2, threshold 0.1, cache off"])
+    result.stdout.re_match_lines(
+        [
+            r"juried: config .*, runs 2, misses 1, cache off",
+            r"juried: gate needs 1/2 passes \(1 miss tolerated\)",
+        ]
+    )
     assert not (pytester.path / ".juried" / "cache").exists()
+
+
+def test_threshold_is_derived_and_deprecated(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url)
+    result = pytester.runpytest("--juried-threshold=0.1", "-v", "-k", "hours")
+    result.assert_outcomes(passed=1)
+    result.stdout.re_match_lines(
+        [
+            r"juried: config .*, runs 4, misses 2, cache verdicts only.*",
+            r"juried: threshold is deprecated and is removed in 0.4: threshold 0.1 with 4 runs "
+            r"tolerates 2 misses, so set misses = 2 instead",
+            r"juried: gate needs 2/4 passes \(2 misses tolerated\)",
+        ]
+    )
+    text = (pytester.path / "juried.toml").read_text().replace("misses = 0", "threshold = 0.5")
+    (pytester.path / "juried.toml").write_text(text)
+    from_file = pytester.runpytest("-k", "hours")
+    from_file.assert_outcomes(passed=1)
+    from_file.stdout.re_match_lines([r"juried: threshold is deprecated.*set misses = 0 instead"])
+    # The command line gate wins outright, so it cannot disagree with the file's threshold.
+    overridden = pytester.runpytest("--juried-misses=1", "-k", "hours")
+    overridden.assert_outcomes(passed=1)
+    assert "threshold is deprecated" not in overridden.stdout.str()
+    overridden.stdout.re_match_lines([r"juried: gate needs 3/4 passes \(1 miss tolerated\)"])
+
+
+def test_per_scenario_gate_overrides(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url)
+    (pytester.path / "scenarios" / "c-flaky.yaml").write_text(
+        """
+criterion: refund-policy
+scenarios:
+  - name: Tolerates misses
+    message: What are your opening hours?
+    expected: Gives the hours including "9am".
+    runs: 6
+    misses: 2
+  - name: Old style
+    message: What are your opening hours?
+    expected: Gives the hours including "9am".
+    runs: 6
+    threshold: 0.4
+  - name: Only runs
+    message: What are your opening hours?
+    expected: Gives the hours including "9am".
+    runs: 6
+"""
+    )
+    result = pytester.runpytest("-v", "-k", "flaky")
+    result.assert_outcomes(passed=3)
+    result.stdout.fnmatch_lines(
+        [
+            "*tolerates-misses PASSED 6/6 (needs 4, interval *",
+            "*old-style PASSED 6/6 (needs 5, interval *",
+            "*only-runs PASSED 6/6 (needs 6, interval *",
+        ]
+    )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    entries = {s["id"]: s for c in report["criteria"] for s in c["scenarios"]}
+    assert entries["refund-policy-tolerates-misses"]["misses"] == 2
+    assert entries["refund-policy-tolerates-misses"]["required_passes"] == 4
+    assert entries["refund-policy-old-style"]["misses"] == 1
+    assert entries["refund-policy-old-style"]["threshold"] == 0.4
+    # Only runs set: the file's misses (0) applies at the scenario's own count.
+    assert entries["refund-policy-only-runs"]["misses"] == 0
 
 
 def test_real_judge_without_calibration_report_is_warned(
@@ -269,7 +341,7 @@ def test_replayed_responses_are_shouted_about(pytester: pytest.Pytester, fake_bo
     second.assert_outcomes(passed=1)
     second.stdout.fnmatch_lines(
         [
-            "*PASSED 4/4 (lower 0.51 >= 0.50) [[]4 response(s) replayed from cache[]]*",
+            "*PASSED 4/4 (needs 4, interval 0.51 to 1.00) [[]4 response(s) replayed from cache[]]*",
             "*juried: warning: 4 of 4 responses were replayed from *responses and did not "
             "sample the feature; run without --cache-responses to sample again",
         ]
@@ -279,17 +351,34 @@ def test_replayed_responses_are_shouted_about(pytester: pytest.Pytester, fake_bo
     assert "replayed from" not in plain.stdout.str()
 
 
-def test_unattainable_gate_is_flagged(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+def test_impossible_gates_are_rejected_before_any_request(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
     write_project(pytester, fake_bot_url)
-    result = pytester.runpytest("--juried-threshold=0.9", "-k", "hours")
-    result.assert_outcomes(failed=1)
-    assert "gate needs" not in result.stdout.str()
-    result.stdout.fnmatch_lines(
+    unattainable = pytester.runpytest("--juried-threshold=0.9", "-k", "hours")
+    assert unattainable.ret == pytest.ExitCode.USAGE_ERROR
+    unattainable.stderr.fnmatch_lines(
         [
-            "juried: warning: with 4 runs the best possible lower bound is 0.51, below the "
-            "threshold 0.90, so the gate can never be upheld.*",
-            "*note: with 4 runs the best possible lower bound*",
+            "*juried: run: threshold 0.90 can never be met with 4 runs, whose best possible lower "
+            "bound is 0.51; threshold is deprecated, set misses instead"
         ]
+    )
+    always_passes = pytester.runpytest("--juried-misses=4", "-k", "hours")
+    assert always_passes.ret == pytest.ExitCode.USAGE_ERROR
+    always_passes.stderr.fnmatch_lines(
+        [
+            "*juried: run: misses = 4 is not below runs = 4, so the gate could never fail; lower "
+            "misses or raise runs"
+        ]
+    )
+    (pytester.path / "scenarios" / "c-bad.yaml").write_text(
+        "criterion: opening-hours\nscenarios:\n  - name: Lax\n    message: m\n"
+        "    expected: e\n    runs: 2\n    misses: 2\n"
+    )
+    per_scenario = pytester.runpytest()
+    per_scenario.assert_outcomes(errors=1)
+    per_scenario.stdout.fnmatch_lines(
+        ["*scenario 'opening-hours-lax': misses = 2 is not below runs = 2*"]
     )
 
 
@@ -302,12 +391,14 @@ def test_transport_errors_reported(pytester: pytest.Pytester, fake_bot_url: str)
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "*FAILED incomplete: 0/0 judged of 4 (lower 0.00 < 0.50) with 4 transport error(s)*",
+            "*FAILED incomplete: 0/0 judged of 4 (needs 4, interval 0.00 to 0.00) with 4 "
+            "transport error(s)*",
             "juried could not complete scenario 'opening-hours-asks-hours' (Asks hours): "
             "4 of 4 attempts ended in 4 transport error(s)",
             "  these attempts are not counted in the pass rate; fix the endpoint or judge "
             "and run again",
             "*runs upheld: 0/0 judged = 0.00",
+            "*gate: gate needs 4/4 passes (no misses tolerated); no attempt reached a verdict",
             "*transport errors: 4",
             "*judge errors: 0",
             "*first failing run: attempt 1 (transport error)",

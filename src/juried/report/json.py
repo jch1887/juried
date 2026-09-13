@@ -11,7 +11,6 @@ from juried.config import Config
 from juried.criteria import Criterion
 from juried.pricing import Usage, estimate_usd, prices_for
 from juried.runner import ScenarioResult
-from juried.stats import required_passes
 
 # Bumped whenever a field in the JSON report or the calibration report changes meaning or
 # goes away; adding a field does not bump it. Compare refuses reports of different versions.
@@ -53,6 +52,7 @@ def build_report(
         known.setdefault(result.criterion.id, result.criterion)
 
     prices = prices_for(config.judge.model, config.judge.prices)
+    gate = config.run.gate()
     criteria_entries = []
     for criterion_id, group in by_criterion.items():
         criterion = known[criterion_id]
@@ -84,9 +84,10 @@ def build_report(
             "prices_usd_per_million": None if prices is None else list(prices),
         },
         "defaults": {
-            "runs": config.run.runs,
-            "threshold": config.run.threshold,
-            "required_passes": required_passes(config.run.runs, config.run.threshold),
+            "runs": gate.runs,
+            "misses": gate.misses,
+            "required_passes": gate.passes_needed,
+            "threshold": gate.equivalent_threshold,
         },
         "summary": {
             "criteria": len(criteria_entries),

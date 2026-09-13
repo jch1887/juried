@@ -7,6 +7,46 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Breaking changes
+
+- The gate is a count of tolerated misses, not a threshold on the interval. `[run] misses`
+  (default 1) and a per scenario `misses` say how many attempts may fail, and a scenario
+  passes when `passes >= runs - misses`. The Wilson interval is still computed and shown but
+  no longer decides. With the default 20 runs the requirement is unchanged at 19 of 20; a
+  scenario that set `runs` without a threshold now tolerates one miss at any count rather
+  than the count the threshold table gave it. `threshold` is deprecated and is removed in
+  0.4: set without `misses`, it derives `misses` (the largest count whose lower bound still
+  met it) and the run header prints a notice naming the value to set; set alongside a
+  disagreeing `misses`, or at a value no run count could meet, it is a config error rather
+  than a warning. A `misses` at or above `runs` is also an error, since such a gate could
+  never fail.
+- Terminal output no longer mentions a threshold. The header prints
+  `gate needs 19/20 passes (1 miss tolerated)`, the pytest summary shows
+  `19/20 (needs 19, interval 0.75 to 0.99)`, and a gate failure states the gate, the misses
+  on the judged attempts and the interval.
+- The JSON report's scenario entries and `defaults` carry `misses`. `required_passes` is
+  always an integer, and `threshold` is always populated: the configured value while the
+  deprecated key is set, otherwise the interval lower bound the gate is equivalent to. No
+  field changed meaning, so `schema_version` stays at 1.
+- The HTML report's scenario table shows "Gate needs" and one "Interval" column in place of
+  the threshold, lower bound and upper bound columns.
+
+### Added
+
+- `juried run --misses N` and `JURIED_RUN_MISSES`, overriding `[run] misses`. A command
+  line `--misses` or `--threshold` replaces the file's gate outright, so it cannot disagree
+  with it.
+- JUnit `user_properties` `misses_tolerated` and `passes_needed`; `threshold` is still
+  written, derived as above, so existing dashboards keep working.
+- `juried compare` reads the passes a gate needed from `misses`, `required_passes` or
+  `threshold`, whichever the report carries, and writes it as `passes_needed` in `--json`.
+- `docs/upgrading-0.3.md`, the migration notes for 0.3.
+
+### Changed
+
+- The README's "How a scenario passes" no longer needs a warning and a lookup table to
+  explain the gate; the interval is described once under the report section.
+
 ## [0.2.1] - 2026-09-13
 
 ### Added

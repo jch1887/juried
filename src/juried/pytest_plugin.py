@@ -17,7 +17,7 @@ from juried.pricing import Usage, describe_usage
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult, Session
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
-from juried.stats import best_possible_lower_bound, describe_gate, required_passes
+from juried.stats import Gate, GateError, deprecation_notice
 from juried.targets.http import TargetConfigError, expand_env
 
 RESPONSE_EXCERPT = 1200
@@ -46,15 +46,13 @@ class JuriedState:
             self._runner = Runner(self.config, provider, self.cache)
         return self._runner
 
-    def gate_warning(self, runs: int, threshold: float) -> str | None:
-        best = best_possible_lower_bound(runs)
-        if best >= threshold:
-            return None
-        return (
-            f"with {runs} runs the best possible lower bound is {best:.2f}, "
-            f"below the threshold {threshold:.2f}, so the gate can never be upheld. "
-            "Raise runs or lower the threshold."
-        )
+    @property
+    def gate(self) -> Gate:
+        return self.config.run.gate()
+
+    def gate_for(self, scenario: Scenario) -> Gate:
+        runs = scenario.runs if scenario.runs is not None else self.config.run.runs
+        return self.config.run.gate(runs, scenario.misses, scenario.threshold)
 
 
 STATE = pytest.StashKey[JuriedState]()
@@ -70,7 +68,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("juried", "juried acceptance scenarios")
     group.addoption("--juried-config", default=None, help="path to juried.toml")
     group.addoption("--juried-runs", type=int, default=None, help="override run.runs")
-    group.addoption("--juried-threshold", type=float, default=None, help="override run.threshold")
+    group.addoption("--juried-misses", type=int, default=None, help="override run.misses")
+    group.addoption(
+        "--juried-threshold",
+        type=float,
+        default=None,
+        help="override run.threshold (deprecated, derive misses from a threshold)",
+    )
     group.addoption(
         "--juried-no-cache", action="store_true", help="ignore cached verdicts and responses"
     )
@@ -93,12 +97,11 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     try:
         juried_config = load_config(path)
-        runs = config.getoption("--juried-runs")
-        if runs is not None:
-            juried_config.run.runs = runs
-        threshold = config.getoption("--juried-threshold")
-        if threshold is not None:
-            juried_config.run.threshold = threshold
+        juried_config.run = juried_config.run.with_overrides(
+            config.getoption("--juried-runs"),
+            config.getoption("--juried-misses"),
+            config.getoption("--juried-threshold"),
+        )
         if config.getoption("--juried-cache-responses"):
             juried_config.run.cache_responses = True
         # Resolve ${NAME} references now so a missing variable fails before any scenario runs.
@@ -114,23 +117,23 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     if state is None:
         return []
     run = state.config.run
+    gate = state.gate
     votes = f" ({state.config.judge.votes} votes)" if state.config.judge.votes > 1 else ""
     lines = [
         f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
-        f"{state.config.judge.model}{votes}, runs {run.runs}, threshold {run.threshold}, "
+        f"{state.config.judge.model}{votes}, runs {gate.runs}, misses {gate.misses}, "
         f"cache {cache_mode(state)}, concurrency {run.concurrency} "
         f"target / {state.config.judge.concurrency} judge"
     ]
+    notice = deprecation_notice(gate)
+    if notice:
+        lines.append(f"juried: {notice}")
     if state.cache.enabled and state.config.run.cache_responses:
         lines.append(
             "juried: warning: responses are replayed from the cache where present, so "
             "repeated runs of a replayed scenario do not sample the feature"
         )
-    warning = state.gate_warning(run.runs, run.threshold)
-    if warning:
-        lines.append(f"juried: warning: {warning}")
-    else:
-        lines.append(f"juried: {describe_gate(run.runs, run.threshold)}")
+    lines.append(f"juried: {gate.describe()}")
     return lines
 
 
@@ -166,6 +169,10 @@ class ScenarioFile(pytest.File):
                     f"scenario {scenario.id!r} refers to unknown criterion "
                     f"{scenario.criterion!r}; known criteria: {known}"
                 )
+            try:
+                state.gate_for(scenario)
+            except GateError as exc:
+                raise self.CollectError(f"scenario {scenario.id!r}: {exc}") from exc
             yield ScenarioItem.from_parent(self, name=scenario.id, scenario=scenario)
 
 
@@ -214,6 +221,8 @@ class ScenarioItem(pytest.Item):
                 ("pass_rate", f"{self.result.pass_rate:.4f}"),
                 ("interval_lower", f"{interval.lower:.4f}"),
                 ("interval_upper", f"{interval.upper:.4f}"),
+                ("misses_tolerated", self.result.misses),
+                ("passes_needed", self.result.required_passes),
                 ("threshold", self.result.threshold),
                 ("transport_errors", self.result.transport_errors),
             ]
@@ -242,18 +251,19 @@ def describe_errors(result: ScenarioResult) -> str:
     return " and ".join(parts)
 
 
+def describe_interval(result: ScenarioResult) -> str:
+    interval = result.interval
+    return f"interval {interval.lower:.2f} to {interval.upper:.2f}"
+
+
 def summarise(result: ScenarioResult) -> str:
-    comparison = ">=" if result.quality_met else "<"
+    needs = f"needs {result.required_passes}"
     if result.complete:
-        text = (
-            f"{result.passes}/{result.total} "
-            f"(lower {result.interval.lower:.2f} {comparison} {result.threshold:.2f})"
-        )
+        text = f"{result.passes}/{result.total} ({needs}, {describe_interval(result)})"
     else:
         text = (
             f"incomplete: {result.passes}/{result.judged} judged of {result.total} "
-            f"(lower {result.interval.lower:.2f} {comparison} {result.threshold:.2f}) "
-            f"with {describe_errors(result)}"
+            f"({needs}, {describe_interval(result)}) with {describe_errors(result)}"
         )
     if result.responses_from_cache:
         text += f" [{result.responses_from_cache} response(s) replayed from cache]"
@@ -303,15 +313,18 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
             "  these attempts are not counted in the pass rate; fix the endpoint or judge "
             "and run again",
         ]
-    verdict = "met" if result.quality_met else "not met"
+    if result.judged:
+        verdict = "met" if result.quality_met else "not met"
+        missed = f"{result.fails} miss{'es' if result.fails != 1 else ''}"
+        outcome = f"{missed} on the judged attempts, so the gate is {verdict}"
+    else:
+        outcome = "no attempt reached a verdict"
     lines.extend(
         [
             f"  criterion: {result.criterion.id} ({result.criterion.title})",
             f"  runs upheld: {result.passes}/{result.judged} judged = {result.pass_rate:.2f}",
-            f"  lower bound: {interval.lower:.2f} (Wilson 95% interval {interval.lower:.2f} "
-            f"to {interval.upper:.2f})",
-            f"  threshold: {result.threshold:.2f}, gate upheld when the lower bound meets it "
-            f"({verdict} on the judged attempts)",
+            f"  gate: {result.gate.describe()}; {outcome}",
+            f"  interval: Wilson 95% interval {interval.lower:.2f} to {interval.upper:.2f}",
             f"  transport errors: {result.transport_errors}",
             f"  judge errors: {result.judge_errors}",
         ]
@@ -320,15 +333,6 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
         lines.append(
             f"  responses replayed from cache: {result.responses_from_cache} "
             "(these attempts did not sample the feature)"
-        )
-    warning = state.gate_warning(result.total, result.threshold)
-    if warning:
-        lines.append(f"  note: {warning}")
-    else:
-        needed = required_passes(result.total, result.threshold)
-        lines.append(
-            f"  note: {describe_gate(result.total, result.threshold)}; "
-            f"{needed} of {result.total} runs had to pass and {result.passes} did"
         )
     failures = result.failures
     if failures:

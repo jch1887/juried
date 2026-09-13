@@ -13,6 +13,7 @@ from juried.criteria import Criterion
 from juried.judge import Provider, ProviderError, StubProvider, Usage, Verdict
 from juried.runner import Runner, ScenarioResult, Session
 from juried.scenarios import Scenario, Turn
+from juried.stats import Gate
 from juried.targets.base import TargetResponse
 from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
@@ -125,13 +126,17 @@ def make_runner(
 
 def test_repeated_runs_and_gate(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am to 5pm."] * 9 + ["Closed."])
-    result = make_runner(tmp_path, target).run(scenario(), CRITERION)
+    result = make_runner(tmp_path, target).run(scenario(misses=0), CRITERION)
     assert target.calls == 10
     assert result.total == 10
     assert result.passes == 9
+    assert result.fails == 1
     assert result.pass_rate == pytest.approx(0.9)
     assert result.interval.lower == pytest.approx(0.5958, abs=1e-4)
+    assert result.required_passes == 10
     assert not result.gate_passed
+    # The default tolerates one miss, so the same sample passes.
+    assert make_runner(tmp_path, target).run(scenario(), CRITERION).gate_passed
     assert len(result.failures) == 1
     assert result.failures[0].attempt == 10
     assert result.failures[0].reason == "response does not mention '9am'"
@@ -147,11 +152,21 @@ def test_all_pass_meets_default_gate(tmp_path: Path) -> None:
 
 def test_per_scenario_overrides(tmp_path: Path) -> None:
     target = ScriptedTarget(["Open 9am to 5pm.", "Closed."])
-    result = make_runner(tmp_path, target).run(scenario(runs=4, threshold=0.1), CRITERION)
+    result = make_runner(tmp_path, target).run(scenario(runs=4, misses=2), CRITERION)
     assert result.total == 4
     assert result.passes == 2
-    assert result.threshold == 0.1
+    assert result.misses == 2
+    assert result.required_passes == 2
     assert result.gate_passed
+    assert result.to_dict()["threshold"] == 0.15
+    stricter = make_runner(tmp_path, target).run(scenario(runs=4, misses=1), CRITERION)
+    assert not stricter.gate_passed
+    assert stricter.status == "failed"
+    # A per scenario threshold is still honoured, derived at the scenario's run count.
+    legacy = make_runner(tmp_path, target).run(scenario(runs=4, threshold=0.1), CRITERION)
+    assert legacy.gate == Gate(4, 2, 0.1)
+    assert legacy.threshold == 0.1
+    assert legacy.gate_passed
 
 
 def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> None:
@@ -183,7 +198,7 @@ def test_transport_errors_are_distinct_from_judge_failures(tmp_path: Path) -> No
 def test_errors_do_not_drag_the_rate_down(tmp_path: Path) -> None:
     target = ScriptedTarget([TransportFailure("HTTP 502 from http://bot", status_code=502)] * 3)
     target.replies.extend(["Open 9am."] * 7)
-    result = make_runner(tmp_path, target, runs=10).run(scenario(threshold=0.6), CRITERION)
+    result = make_runner(tmp_path, target, runs=10).run(scenario(misses=1), CRITERION)
     assert result.transport_errors == 3
     assert result.passes == 7
     assert result.judged == 7
@@ -599,6 +614,9 @@ def test_result_dict_shape(tmp_path: Path) -> None:
     assert data["passes"] == 2
     assert data["tags"] == ["smoke"]
     assert data["interval"] == {"lower": pytest.approx(0.3424, abs=1e-4), "upper": 1.0}
-    assert data["gate_passed"] is False
+    assert data["misses"] == 1
+    assert data["required_passes"] == 1
+    assert data["threshold"] == pytest.approx(0.0945, abs=1e-4)
+    assert data["gate_passed"] is True
     assert data["attempts"][0]["verdict"]["passed"] is True
     assert isinstance(httpx.AsyncClient, type)

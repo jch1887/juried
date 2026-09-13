@@ -8,6 +8,7 @@ from juried.judge import Verdict
 from juried.report import build_report, render_html, write_reports
 from juried.runner import RunRecord, ScenarioResult
 from juried.scenarios import Scenario, Turn
+from juried.stats import Gate
 
 HOURS = Criterion("hours", "Opening hours", "States the hours.")
 REFUNDS = Criterion("refunds", "Refund policy", "Refunds within 14 days.")
@@ -40,13 +41,13 @@ def results() -> list[ScenarioResult]:
         ScenarioResult(
             hours,
             HOURS,
-            0.4,
+            Gate(3, 0),
             [RunRecord(i, "Open 9am to 5pm.", verdict=verdict(True, "ok")) for i in range(1, 4)],
         ),
         ScenarioResult(
             refunds,
             REFUNDS,
-            0.7,
+            Gate(3, 1),
             [
                 RunRecord(
                     1, "Refunds within 14 days.", verdict=verdict(True, "ok"), response_ms=820.4
@@ -100,13 +101,23 @@ def test_build_report_structure(tmp_path: Path) -> None:
     assert scenario["interval"]["lower"] == 0.4385
     assert scenario["gate_passed"] is True
     assert scenario["required_passes"] == 3
-    assert report["defaults"] == {"runs": 20, "threshold": 0.7, "required_passes": 19}
+    assert scenario["misses"] == 0
+    assert scenario["threshold"] == 0.4385
+    assert report["defaults"] == {
+        "runs": 20,
+        "misses": 1,
+        "required_passes": 19,
+        "threshold": 0.7639,
+    }
     assert scenario["history"][0]["content"] == "hi"
     assert report["criteria"][1]["incomplete"] == 1
     assert report["criteria"][1]["gates_failed"] == 0
     refunds = report["criteria"][1]["scenarios"][0]
     assert refunds["gate_passed"] is False
     assert refunds["status"] == "incomplete"
+    assert refunds["quality_met"] is True
+    assert refunds["misses"] == 1
+    assert refunds["required_passes"] == 2
     assert refunds["judged"] == 2
     assert refunds["pass_rate"] == 0.5
     assert [f["attempt"] for f in refunds["failures"]] == [2, 3]
@@ -161,17 +172,21 @@ def test_render_html_is_self_contained_and_escaped(tmp_path: Path) -> None:
     assert "$0.0000" in html
     assert "No list price is known" not in html
     assert "split verdicts" not in html
-    assert '<th class="num">Lower bound</th>' in html
-    assert '<td class="num bound">44%</td>' in html
-    assert '40%<br><span class="meta">needs 3 / 3</span>' in html
-    assert "which needs 19 of 20 runs to pass" in html
-    assert '<th class="num">Upper bound</th>' in html
-    assert html.count("A scenario is upheld when the lower bound of its 95% interval meets") == 1
+    assert '<th class="num">Gate needs</th>' in html
+    assert '<th class="num">Interval</th>' in html
+    assert '<td class="num">44% to 100%</td>' in html
+    assert '<td class="num">3 / 3<br><span class="meta">0 misses</span></td>' in html
+    assert '<td class="num">2 / 3<br><span class="meta">1 miss</span></td>' in html
+    assert "gate needs 19 of 20 to pass (1 miss tolerated)" in html
+    assert "threshold" not in html.lower()
+    rule = 'A scenario is upheld when at least the number of runs under "Gate needs"'
+    assert html.count(rule) == 1
     assert ">upheld</td>" in html
     assert 'style="grid-template-columns: repeat(8, minmax(0, 1fr));"' in html
     assert ">incomplete</td>" in html
     assert ">failed</td>" not in html
     assert '<th class="num">Runs upheld / judged</th>' in html
+    assert '<td class="num bound">1 / 2<br>' in html
     assert '<th class="num">Passes</th>' not in html
     assert ">pass<" not in html and ">fail<" not in html
     assert html.count('<span class="meta">hours-happy</span>') == 0

@@ -17,7 +17,7 @@ from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
 from juried.pricing import Usage
 from juried.scenarios import Scenario, Turn
-from juried.stats import Interval, required_passes, wilson_interval
+from juried.stats import Gate, Interval, wilson_interval
 from juried.targets.base import Target
 from juried.targets.http import HttpTarget, TargetConfigError
 from juried.transport import TransportFailure
@@ -118,7 +118,7 @@ class Latency:
 class ScenarioResult:
     scenario: Scenario
     criterion: Criterion
-    threshold: float
+    gate: Gate
     runs: list[RunRecord] = field(default_factory=list)
 
     @property
@@ -149,9 +149,14 @@ class ScenarioResult:
     def judged(self) -> int:
         return self.total - self.errors
 
-    # Pass rate and interval describe the feature's quality, so they are computed over the
-    # attempts that reached a verdict. Attempts lost to transport or judge errors are counted
-    # separately and make the result incomplete rather than dragging the rate down.
+    @property
+    def fails(self) -> int:
+        return self.judged - self.passes
+
+    # Pass rate, interval and the gate describe the feature's quality, so they are computed
+    # over the attempts that reached a verdict. Attempts lost to transport or judge errors
+    # are counted separately and make the result incomplete rather than dragging the rate
+    # down. The interval is descriptive; the gate is the count of misses.
     @property
     def pass_rate(self) -> float:
         return self.passes / self.judged if self.judged else 0.0
@@ -162,7 +167,7 @@ class ScenarioResult:
 
     @property
     def quality_met(self) -> bool:
-        return self.judged > 0 and self.interval.lower >= self.threshold
+        return self.gate.met(self.passes, self.judged)
 
     @property
     def complete(self) -> bool:
@@ -179,8 +184,16 @@ class ScenarioResult:
         return "upheld" if self.quality_met else "failed"
 
     @property
-    def required_passes(self) -> int | None:
-        return required_passes(self.total, self.threshold)
+    def misses(self) -> int:
+        return self.gate.misses
+
+    @property
+    def required_passes(self) -> int:
+        return self.gate.passes_needed
+
+    @property
+    def threshold(self) -> float:
+        return self.gate.equivalent_threshold
 
     @property
     def failures(self) -> list[RunRecord]:
@@ -227,8 +240,9 @@ class ScenarioResult:
             "judge_errors": self.judge_errors,
             "pass_rate": round(self.pass_rate, 4),
             "interval": {"lower": round(interval.lower, 4), "upper": round(interval.upper, 4)},
-            "threshold": self.threshold,
+            "misses": self.misses,
             "required_passes": self.required_passes,
+            "threshold": self.threshold,
             "quality_met": self.quality_met,
             "gate_passed": self.gate_passed,
             "status": self.status,
@@ -268,8 +282,8 @@ class Runner:
     def runs_for(self, scenario: Scenario) -> int:
         return scenario.runs if scenario.runs is not None else self.config.run.runs
 
-    def threshold_for(self, scenario: Scenario) -> float:
-        return scenario.threshold if scenario.threshold is not None else self.config.run.threshold
+    def gate_for(self, scenario: Scenario) -> Gate:
+        return self.config.run.gate(self.runs_for(scenario), scenario.misses, scenario.threshold)
 
     def run(self, scenario: Scenario, criterion: Criterion) -> ScenarioResult:
         return asyncio.run(self.run_async(scenario, criterion))
@@ -293,7 +307,8 @@ class Runner:
     async def run_with(
         self, resources: Resources, scenario: Scenario, criterion: Criterion
     ) -> ScenarioResult:
-        runs = self.runs_for(scenario)
+        gate = self.gate_for(scenario)
+        runs = gate.runs
         try:
             # A task group cancels the remaining attempts when one raises, so a
             # configuration error stops the scenario instead of leaving tasks dangling.
@@ -305,7 +320,7 @@ class Runner:
         except* TargetConfigError as failures:
             raise failures.exceptions[0] from None
         records = [task.result() for task in tasks]
-        return ScenarioResult(scenario, criterion, self.threshold_for(scenario), records)
+        return ScenarioResult(scenario, criterion, gate, records)
 
     async def _attempt(
         self,

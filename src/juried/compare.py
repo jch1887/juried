@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from juried.stats import required_passes
+
 # Kinds that count as a regression, in the order they are printed.
 REGRESSIONS = ("gate lost", "newly incomplete", "new failing", "dropped")
 IMPROVEMENTS = ("gate regained", "improved")
@@ -94,9 +96,25 @@ def summary(entry: dict[str, Any] | None) -> dict[str, Any] | None:
         "runs": entry.get("runs"),
         "pass_rate": entry.get("pass_rate"),
         "lower": entry.get("interval", {}).get("lower"),
+        "passes_needed": passes_needed(entry),
         "gate_passed": entry.get("gate_passed"),
         "status": entry.get("status", "upheld" if entry.get("gate_passed") else "failed"),
     }
+
+
+# Reports from 0.3 onwards carry misses; earlier ones carry a threshold and, from 0.2.0,
+# required_passes. Any of the three says what the gate needed.
+def passes_needed(entry: dict[str, Any]) -> int | None:
+    runs = entry.get("runs")
+    if not isinstance(runs, int):
+        return None
+    if isinstance(entry.get("misses"), int):
+        return runs - int(entry["misses"])
+    if isinstance(entry.get("required_passes"), int):
+        return int(entry["required_passes"])
+    if isinstance(entry.get("threshold"), int | float):
+        return required_passes(runs, float(entry["threshold"]))
+    return None
 
 
 def describe(entry: dict[str, Any]) -> str:

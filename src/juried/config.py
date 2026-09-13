@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from juried.stats import Gate, GateError, build_gate
+
 CONFIG_FILENAME = "juried.toml"
 ENV_PREFIX = "JURIED_"
 
@@ -46,11 +48,51 @@ class CriteriaConfig(StrictModel):
 
 class RunConfig(StrictModel):
     runs: int = Field(default=20, ge=1)
-    threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    # Failed attempts a scenario may have and still pass. Unset means DEFAULT_MISSES, or
+    # whatever the deprecated threshold works out to when only that is set.
+    misses: int | None = Field(default=None, ge=0)
+    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
     cache_dir: Path = Path(".juried")
     cache_responses: bool = False
     report_dir: Path = Path("reports")
+
+    @model_validator(mode="after")
+    def gate_is_consistent(self) -> RunConfig:
+        try:
+            self.gate()
+        except GateError as exc:
+            raise ValueError(f"run: {exc}") from None
+        return self
+
+    # A scenario may override runs, misses or threshold; the more specific setting wins,
+    # and a scenario threshold is derived at the scenario's own run count.
+    def gate(
+        self,
+        runs: int | None = None,
+        misses: int | None = None,
+        threshold: float | None = None,
+    ) -> Gate:
+        if misses is None and threshold is None:
+            misses, threshold = self.misses, self.threshold
+        return build_gate(runs if runs is not None else self.runs, misses, threshold)
+
+    def with_overrides(
+        self, runs: int | None = None, misses: int | None = None, threshold: float | None = None
+    ) -> RunConfig:
+        data = self.model_dump()
+        if runs is not None:
+            data["runs"] = runs
+        # A command line gate replaces the file's, so the two cannot be made to disagree.
+        if misses is not None:
+            data["misses"], data["threshold"] = misses, None
+        elif threshold is not None:
+            data["misses"], data["threshold"] = None, threshold
+        try:
+            return RunConfig.model_validate(data)
+        except ValidationError as exc:
+            messages = "; ".join(str(error["msg"]) for error in exc.errors())
+            raise ConfigError(messages.replace("Value error, ", "")) from None
 
 
 class JudgeConfig(StrictModel):

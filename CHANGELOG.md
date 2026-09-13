@@ -7,6 +7,13 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Fixed
+
+- An empty `judge.model` or `generate.model`, whether from `juried.toml` or an empty
+  `JURIED_JUDGE_MODEL`, now stops the run with "judge.model must not be empty" instead of
+  reaching the provider and coming back as an HTTP 400. The live tests treat an empty
+  model override as unset, which is how the workflow exports it.
+
 ### Changed
 
 - The HTML report's totals sit on one row of tiles, or two even rows when the replay and

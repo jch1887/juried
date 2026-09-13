@@ -54,7 +54,9 @@ PROVIDERS = [
 def live_provider(name: str, key: str, model_variable: str, default_model: str) -> LLMProvider:
     if not os.environ.get(key):
         pytest.skip(f"{key} is not set")
-    model = os.environ.get(model_variable, default_model)
+    # The workflow exports the override variables even when they are unset, so an empty
+    # value means "use the default" rather than "send an empty model name".
+    model = os.environ.get(model_variable) or default_model
     provider = build_provider(cast(ProviderName, name), model, None, 512)
     assert isinstance(provider, LLMProvider)
     return provider

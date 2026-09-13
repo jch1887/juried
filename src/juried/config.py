@@ -6,7 +6,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 CONFIG_FILENAME = "juried.toml"
 ENV_PREFIX = "JURIED_"
@@ -52,6 +60,16 @@ class JudgeConfig(StrictModel):
     max_tokens: int = Field(default=2048, ge=1)
     base_url: str | None = None
     votes: int = Field(default=1, ge=1)
+
+    # An empty model name would otherwise reach the provider and come back as an HTTP 400
+    # quoting the provider's own validator, which is far less clear than this.
+    @field_validator("model")
+    @classmethod
+    def model_is_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("judge.model must not be empty")
+        return value
+
     concurrency: int = Field(default=4, ge=1)
     input_price: float | None = Field(default=None, ge=0.0)
     output_price: float | None = Field(default=None, ge=0.0)
@@ -88,6 +106,14 @@ class GenerateConfig(StrictModel):
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     base_url: str | None = None
     scenarios_per_criterion: int = Field(default=4, ge=1)
+
+    @field_validator("model")
+    @classmethod
+    def model_is_not_empty(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("generate.model must not be empty; omit it to use the judge's")
+        return value
+
     max_tokens: int = Field(default=4096, ge=1)
 
 

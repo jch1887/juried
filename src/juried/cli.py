@@ -33,6 +33,19 @@ from juried.criteria import CriteriaError
 from juried.estimate import describe_plan, load_previous_report, plan_run
 from juried.generate import generate_scenarios
 from juried.judge import ProviderError, build_provider
+from juried.label import (
+    CSV_NAME,
+    HTML_NAME,
+    QUEUE_FILE,
+    import_marks,
+    read_marks,
+    read_queue,
+    render_csv,
+    render_html,
+    run_session,
+    summarise_sources,
+    write_queue,
+)
 from juried.pricing import describe_usage
 from juried.report import JSON_NAME
 from juried.scenarios import ScenarioError, load_scenarios
@@ -128,6 +141,13 @@ votes = 1
 # Judge requests in flight across all scenarios, independent of the target cap above.
 concurrency = 4
 
+[label]
+# After every run the responses a human should look at (split votes, gates decided by one
+# miss, judge and checks disagreeing, hedged reasons, and a random sample of the rest) are
+# queued for 'juried label', newest first, up to this many.
+# queue_size = 50
+# sample_rate = 0.02
+
 [generate]
 # provider and model default to the judge settings. temperature does not: generation
 # wants variety, so leave it unset for the model's default or set one here.
@@ -218,6 +238,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         metavar="RATE",
         help="exit with status 1 when the judge agrees with fewer labels than this fraction",
+    )
+
+    label = commands.add_parser(
+        "label", help="label the responses the last run queued, growing the calibration set"
+    )
+    label.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
+    label.add_argument(
+        "--html",
+        action="store_true",
+        help=f"write reports/{HTML_NAME} and reports/{CSV_NAME} for review away from the "
+        "terminal, instead of labelling here",
+    )
+    label.add_argument(
+        "--import",
+        dest="import_path",
+        metavar="PATH",
+        help="read verdicts marked in the HTML or CSV file back into the calibration set",
     )
 
     estimate = commands.add_parser(
@@ -378,7 +415,7 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     votes = f", {judge.votes} votes each" if judge.votes > 1 else ""
     print(
         f"calibrating {provider.name}/{provider.model} against {len(cases)} labelled "
-        f"response(s){votes}"
+        f"response(s){votes}: {summarise_sources(case.source for case in cases)}"
     )
     result = run_calibration(config, criteria, provider, cases)
     for outcome in result.disagreements:
@@ -401,6 +438,45 @@ def command_calibrate(explicit: str | None, min_accuracy: float | None) -> int:
     if min_accuracy is not None and result.accuracy < min_accuracy:
         print(f"juried: judge accuracy {result.accuracy:.2f} is below {min_accuracy:.2f}")
         return 1
+    return 0
+
+
+def command_label(explicit: str | None, html: bool, import_path: str | None) -> int:
+    _, config = locate_config(explicit)
+    queue_path = config.cache_path / QUEUE_FILE
+    entries = read_queue(queue_path)
+    if import_path:
+        marks = read_marks(Path(import_path))
+        outcome = import_marks(entries, marks, config.calibration_path)
+        write_queue(queue_path, outcome.remaining)
+        print(
+            f"imported {len(outcome.labelled)} label(s) from {import_path}; "
+            f"{len(outcome.remaining)} left in the queue"
+        )
+        for path in outcome.files:
+            print(f"wrote {path}")
+        return 0
+    if not entries:
+        print(f"nothing to label: {queue_path} is empty; run 'juried run' first")
+        return 0
+    if html:
+        config.report_path.mkdir(parents=True, exist_ok=True)
+        page = config.report_path / HTML_NAME
+        sheet = config.report_path / CSV_NAME
+        page.write_text(render_html(entries), encoding="utf-8")
+        sheet.write_text(render_csv(entries), encoding="utf-8")
+        print(f"wrote {page} and {sheet} ({len(entries)} response(s))")
+        print(f"mark pass or fail in either, then run 'juried label --import {sheet}'")
+        return 0
+    print(f"{len(entries)} response(s) to label; decide before reading the judge's line")
+    outcome = run_session(entries, config.calibration_path, sys.stdin, sys.stdout)
+    write_queue(queue_path, outcome.remaining)
+    print(
+        f"labelled {len(outcome.labelled)}, skipped {len(outcome.skipped)}, "
+        f"{len(outcome.remaining)} left in the queue"
+    )
+    if outcome.labelled:
+        print("run 'juried calibrate' to measure the judge against the new cases")
     return 0
 
 
@@ -534,6 +610,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return command_calibrate(args.config, args.min_accuracy)
         if args.command == "estimate":
             return command_estimate(args.config, extra)
+        if args.command == "label":
+            return command_label(args.config, args.html, args.import_path)
         if args.command == "compare":
             return command_compare(
                 args.old, args.new, args.alpha, args.min_effect, args.tolerance, args.json

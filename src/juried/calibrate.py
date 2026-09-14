@@ -37,7 +37,9 @@ class CalibrationCase(StrictModel):
     response: str
     verdict: Literal["pass", "fail"]
     note: str = ""
-    source: Path | None = Field(default=None, exclude=True)
+    # "hand" for cases your team wrote; the run id for cases `juried label` wrote.
+    source: str = "hand"
+    file: Path | None = Field(default=None, exclude=True)
 
     @property
     def id(self) -> str:
@@ -83,7 +85,7 @@ def parse_calibration_file(text: str, source: Path | None = None) -> list[Calibr
         data.setdefault("criterion", parsed.criterion)
         if data.get("criterion") is None:
             raise CalibrationError(f"{label}: case {index + 1} has no criterion")
-        data["source"] = source
+        data["file"] = source
         try:
             cases.append(CalibrationCase.model_validate(data))
         except ValidationError as exc:
@@ -137,7 +139,8 @@ class CaseOutcome:
             "id": self.case.id,
             "name": self.case.name,
             "criterion": self.case.criterion,
-            "source": str(self.case.source) if self.case.source else None,
+            "source": str(self.case.file) if self.case.file else None,
+            "origin": self.case.source,
             "human": self.case.verdict,
             "judge": "pass" if self.verdict.passed else "fail",
             "outcome": self.kind,

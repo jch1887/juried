@@ -4,6 +4,7 @@ import concurrent.futures
 import os
 from collections.abc import Generator, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +12,12 @@ import pytest
 
 from juried.adversarial import criteria_for
 from juried.cache import Cache
-from juried.calibrate import CALIBRATION_REPORT
+from juried.calibrate import CALIBRATION_REPORT, CalibrationError, load_calibration
 from juried.checks import CheckError
 from juried.config import Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion
 from juried.judge import ProviderError, build_provider
+from juried.label import QUEUE_FILE, build_queue, merge_queue, read_queue, write_queue
 from juried.pricing import (
     TargetUsage,
     Usage,
@@ -88,6 +90,7 @@ class JuriedState:
         self.results: list[ScenarioResult] = []
         self.report_paths: ReportPaths | None = None
         self.session: Session | None = None
+        self.queued: int = 0
         self._runner: Runner | None = None
 
     @property
@@ -486,6 +489,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         state.config.report_path,
         state.runner.calibration,
     )
+    run_id = datetime.now(UTC).isoformat(timespec="seconds")
+    fresh = build_queue(state.results, run_id, state.config.label.sample_rate)
+    queue_path = state.config.cache_path / QUEUE_FILE
+    queue = merge_queue(fresh, read_queue(queue_path), state.config.label.queue_size)
+    write_queue(queue_path, queue)
+    state.queued = len(queue)
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
@@ -550,6 +559,32 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             "juried: no corrected rate; run 'juried calibrate' with labelled cases to get one",
             yellow=True,
         )
+    terminalreporter.write_line(describe_calibration_set(state))
+    if state.queued:
+        terminalreporter.write_line(
+            f"label queue: {state.queued} response(s) waiting for a human label in "
+            f"{state.config.cache_path / QUEUE_FILE}; run 'juried label'"
+        )
     if state.report_paths is not None:
         terminalreporter.write_line(f"report: {state.report_paths.html}")
         terminalreporter.write_line(f"json:   {state.report_paths.json}")
+
+
+def describe_calibration_set(state: JuriedState) -> str:
+    try:
+        cases = load_calibration(state.config.calibration_path, state.criteria)
+    except CalibrationError:
+        return (
+            f"calibration set: none under {state.config.calibration_path}; label real "
+            "responses there, or run 'juried label' after this run"
+        )
+    per_criterion: dict[str, int] = {}
+    for case in cases:
+        per_criterion[case.criterion] = per_criterion.get(case.criterion, 0) + 1
+    from juried.label import summarise_sources
+
+    counts = ", ".join(f"{criterion} {n}" for criterion, n in sorted(per_criterion.items()))
+    return (
+        f"calibration set: {len(cases)} labelled case(s) "
+        f"({summarise_sources(case.source for case in cases)}): {counts}"
+    )

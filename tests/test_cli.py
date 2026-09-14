@@ -132,7 +132,7 @@ def test_calibrate_reports_disagreements(
     (tmp_path / "calibration" / "hours.yaml").write_text(CALIBRATION)
     assert main(["calibrate"]) == 0
     out = capsys.readouterr().out
-    assert "calibrating stub/stub against 3 labelled response(s)" in out
+    assert "calibrating stub/stub against 3 labelled response(s): 3 hand labelled" in out
     assert (
         "  false pass: opening-hours-right-words-wrong-answer: human says fail, judge says "
         "pass: response mentions every expected phrase [stub cannot see this]"

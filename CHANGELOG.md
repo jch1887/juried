@@ -53,6 +53,21 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- `juried label` grows the calibration set from real output. After every run the responses
+  a human should look at are written to `.juried/label-queue.jsonl`, deduplicated by
+  content and tagged with why: `split` (the votes disagreed), `boundary` (the scenario
+  finished within one miss of its gate), `check_disagreed` (the checks passed but the judge
+  failed the response), `low_confidence` (the judge's reason hedged, by a fixed word list),
+  or `sampled` (a random share, `[label] sample_rate`, default 2%, of the rest); the queue
+  keeps earlier unlabelled entries and is capped at `[label] queue_size` (default 50),
+  newest first. `juried label` shows each case in the terminal with the judge's verdict
+  last and takes `p`, `f`, `s`, `n` or `q`, appending labels to
+  `calibration/from-runs/<criterion>.yaml` with a `source` naming the run; `--html` writes
+  `reports/label-queue.html` (no scripts) and `label-queue.csv`, and `--import` reads
+  marks back from either. Calibration cases gain an optional `source` field, `juried
+  calibrate` reports how many cases came from hand labelling and how many from runs, and
+  every run's summary says how many responses are waiting and the calibration set size
+  per criterion.
 - Every scenario's pass rate is corrected for the judge's own error rate. When
   `reports/juried-calibration.json` is for the configured judge (same provider and model,
   and the same temperature and prompt version where the report records them), juried takes

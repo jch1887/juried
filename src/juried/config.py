@@ -251,12 +251,20 @@ class GenerateConfig(StrictModel):
     max_tokens: int = Field(default=4096, ge=1)
 
 
+class LabelConfig(StrictModel):
+    # Responses queued for a human label after each run, newest first, and the share of
+    # unremarkable responses sampled into the queue so it is not only hard cases.
+    queue_size: int = Field(default=50, ge=1)
+    sample_rate: float = Field(default=0.02, ge=0.0, le=1.0)
+
+
 class Config(StrictModel):
     target: TargetConfig
     criteria: CriteriaConfig = Field(default_factory=CriteriaConfig)
     run: RunConfig = Field(default_factory=RunConfig)
     judge: JudgeConfig = Field(default_factory=JudgeConfig)
     generate: GenerateConfig = Field(default_factory=GenerateConfig)
+    label: LabelConfig = Field(default_factory=LabelConfig)
 
     _root: Path = PrivateAttr(default_factory=Path.cwd)
 

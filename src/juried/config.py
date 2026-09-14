@@ -114,6 +114,10 @@ class RunConfig(StrictModel):
     misses: int | None = Field(default=None, ge=0)
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
+    # Under pytest-xdist each worker has its own caps. "global" divides both caps by the
+    # worker count so the total in flight stays as configured; "worker" applies them as
+    # written to every worker.
+    concurrency_scope: Literal["global", "worker"] = "global"
     cache_dir: Path = Path(".juried")
     cache_responses: bool = False
     report_dir: Path = Path("reports")

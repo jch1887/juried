@@ -86,6 +86,9 @@ runs = 20
 misses = 1
 # All scenarios run together; this caps requests in flight to the target across them.
 concurrency = 4
+# Under pytest-xdist the caps are divided by the worker count so the total in flight stays
+# as written ("global"); "worker" gives every worker the full caps.
+# concurrency_scope = "global"
 cache_dir = ".juried"
 # Verdicts are cached by content so an unchanged response is not judged twice. Responses
 # are sampled fresh on every run unless this is true, which replays saved responses and

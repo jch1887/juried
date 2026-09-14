@@ -315,6 +315,51 @@ def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) 
     assert not (pytester.path / ".juried" / "cache").exists()
 
 
+def test_xdist_workers_share_the_concurrency_caps(
+    pytester: pytest.Pytester, fake_bot_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from juried.pytest_plugin import Concurrency, xdist_workers
+
+    assert xdist_workers({}) is None
+    assert xdist_workers({"PYTEST_XDIST_WORKER_COUNT": "4"}) == 4
+    assert xdist_workers({"PYTEST_XDIST_WORKER_COUNT": "0"}) is None
+    assert xdist_workers({"PYTEST_XDIST_WORKER_COUNT": "many"}) is None
+    assert Concurrency(4, 4, 4).per_worker("global") == Concurrency(1, 1, 4)
+    assert Concurrency(4, 2, 3).per_worker("global") == Concurrency(1, 1, 3)
+    assert Concurrency(10, 6, 4).per_worker("global") == Concurrency(2, 1, 4)
+    assert Concurrency(4, 4, 4).per_worker("worker") == Concurrency(4, 4, 4)
+    assert Concurrency(4, 4).per_worker("global") == Concurrency(4, 4)
+
+    write_project(pytester, fake_bot_url, extra="concurrency = 6")
+    monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", "4")
+    result = pytester.runpytest("-k", "hours")
+    result.assert_outcomes(passed=1)
+    result.stdout.re_match_lines(
+        [
+            r"juried: config .*concurrency 4 target / 6 judge \(1 target / 1 judge per worker, "
+            r"4 xdist workers, scope global\)"
+        ]
+    )
+    text = (
+        (pytester.path / "juried.toml")
+        .read_text()
+        .replace("[run]", '[run]\nconcurrency_scope = "worker"')
+    )
+    (pytester.path / "juried.toml").write_text(text)
+    scoped = pytester.runpytest("-k", "hours")
+    scoped.assert_outcomes(passed=1)
+    scoped.stdout.re_match_lines(
+        [
+            r"juried: config .*concurrency 4 target / 6 judge \(4 target / 6 judge per worker"
+            r".*scope worker\)"
+        ]
+    )
+    monkeypatch.delenv("PYTEST_XDIST_WORKER_COUNT")
+    plain = pytester.runpytest("-k", "hours")
+    plain.stdout.re_match_lines([r"juried: config .*concurrency 4 target / 6 judge$"])
+    assert "per worker" not in plain.stdout.str()
+
+
 def test_threshold_is_derived_and_deprecated(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
     result = pytester.runpytest("--juried-threshold=0.1", "-v", "-k", "hours")

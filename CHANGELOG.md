@@ -53,6 +53,10 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- Under `pytest-xdist` the target and judge concurrency caps are divided by the worker
+  count, never below one each, so `concurrency = 4` with four workers is four requests in
+  flight rather than sixteen; the header prints the per worker figure.
+  `[run] concurrency_scope = "worker"` gives every worker the full caps as before.
 - Adversarial scenarios. `kind: adversarial` and a matching pytest marker;
   `juried generate --adversarial` writes `scenarios/generated/<criterion>.adversarial.yaml`
   with attempts to make the feature violate the criterion (instruction override, false

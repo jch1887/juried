@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +33,54 @@ from juried.stats import Gate, GateError, deprecation_notice
 from juried.targets.http import TargetConfigError, expand_env
 
 RESPONSE_EXCERPT = 1200
+XDIST_WORKERS = "PYTEST_XDIST_WORKER_COUNT"
+
+
+@dataclass(frozen=True)
+class Concurrency:
+    target: int
+    judge: int
+    workers: int | None = None
+
+    # The caps a single worker gets. Divided so that N workers in flight together add up
+    # to what the file says, never below one each.
+    def per_worker(self, scope: str) -> Concurrency:
+        if self.workers is None or scope == "worker":
+            return self
+        return Concurrency(
+            max(1, self.target // self.workers), max(1, self.judge // self.workers), self.workers
+        )
+
+    def describe(self, scope: str) -> str:
+        text = f"concurrency {self.target} target / {self.judge} judge"
+        if self.workers is None:
+            return text
+        effective = self.per_worker(scope)
+        return (
+            f"{text} ({effective.target} target / {effective.judge} judge per worker, "
+            f"{self.workers} xdist workers, scope {scope})"
+        )
+
+
+def xdist_workers(environ: Mapping[str, str]) -> int | None:
+    value = environ.get(XDIST_WORKERS, "").strip()
+    return int(value) if value.isdigit() and int(value) > 0 else None
 
 
 class JuriedState:
-    def __init__(self, config: Config, config_path: Path, cache_enabled: bool) -> None:
+    def __init__(
+        self,
+        config: Config,
+        config_path: Path,
+        cache_enabled: bool,
+        workers: int | None = None,
+    ) -> None:
         self.config = config
         self.config_path = config_path
+        self.concurrency = Concurrency(config.run.concurrency, config.judge.concurrency, workers)
+        effective = self.concurrency.per_worker(config.run.concurrency_scope)
+        config.run.concurrency = effective.target
+        config.judge.concurrency = effective.judge
         self.criteria: dict[str, Criterion] = {
             criterion.id: criterion for criterion in criteria_for(config)
         }
@@ -123,7 +166,12 @@ def pytest_configure(config: pytest.Config) -> None:
             juried_config.run.cache_responses = True
         # Resolve ${NAME} references now so a missing variable fails before any scenario runs.
         expand_env(juried_config.target.model_dump(), os.environ)
-        state = JuriedState(juried_config, path, not config.getoption("--juried-no-cache"))
+        state = JuriedState(
+            juried_config,
+            path,
+            not config.getoption("--juried-no-cache"),
+            xdist_workers(os.environ),
+        )
     except (ConfigError, CriteriaError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
     config.stash[STATE] = state
@@ -139,8 +187,7 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     lines = [
         f"juried: config {state.config_path}, judge {state.config.judge.provider}/"
         f"{state.config.judge.model}{votes}, runs {gate.runs}, misses {gate.misses}, "
-        f"cache {cache_mode(state)}, concurrency {run.concurrency} "
-        f"target / {state.config.judge.concurrency} judge"
+        f"cache {cache_mode(state)}, {state.concurrency.describe(run.concurrency_scope)}"
     ]
     notice = deprecation_notice(gate)
     if notice:

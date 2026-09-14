@@ -69,6 +69,7 @@ output_price = 10.0
 runs = 20          # attempts per scenario
 misses = 1         # failed attempts a scenario may have and still pass
 concurrency = 4    # requests in flight to the target, across all scenarios
+# concurrency_scope = "global"   # under pytest-xdist, share the caps across workers
 
 [judge]
 provider = "anthropic"    # anthropic, openai or stub
@@ -247,6 +248,15 @@ event loops. `run.concurrency` caps requests in flight to your endpoint and
 and a fragile staging endpoint can be throttled without starving the judge. Stopping with
 `-x` cancels the scenarios that were still in flight. `.juried/verdicts.jsonl` is appended
 under a file lock, so `pytest-xdist` workers do not interleave lines.
+
+Under `pytest-xdist` every worker is its own process with its own event loop, so the caps
+would otherwise apply per worker: `concurrency = 4` with `-n 4` would be sixteen requests
+in flight. juried reads the worker count and divides both caps by it, never below one each,
+so the total stays what the file says; the header prints the per worker figure
+(`concurrency 4 target / 4 judge (1 target / 1 judge per worker, 4 xdist workers, scope
+global)`). Set `concurrency_scope = "worker"` under `[run]` to give every worker the full
+caps instead. Scenarios are only split across workers, never a scenario's attempts, so a
+single scenario's runs stay on one worker.
 
 ## How a scenario passes
 

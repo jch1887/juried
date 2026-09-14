@@ -14,6 +14,14 @@ import httpx
 from juried.cache import Cache
 from juried.checks import CheckError, CheckOutcome, failed, run_checks
 from juried.config import Config
+from juried.correction import (
+    CALIBRATION_REPORT,
+    Calibration,
+    Corrected,
+    calibration_mismatch,
+    correct,
+    load_calibration,
+)
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
 from juried.pricing import TargetUsage, Usage
@@ -189,6 +197,8 @@ class ScenarioResult:
     criterion: Criterion
     gate: Gate
     runs: list[RunRecord] = field(default_factory=list)
+    gate_on: str = "observed"
+    corrected: Corrected | None = None
 
     @property
     def total(self) -> int:
@@ -234,8 +244,22 @@ class ScenarioResult:
     def interval(self) -> Interval:
         return wilson_interval(self.passes, self.judged)
 
+    # With gate_on = "corrected" the gate is the lower bound of the corrected interval
+    # against the rate the miss count implies; without a usable correction it falls back
+    # to the observed passes and says so.
+    @property
+    def corrected_applies(self) -> bool:
+        return (
+            self.gate_on == "corrected"
+            and self.corrected is not None
+            and self.corrected.interval is not None
+        )
+
     @property
     def quality_met(self) -> bool:
+        if self.corrected_applies:
+            assert self.corrected is not None and self.corrected.interval is not None
+            return self.judged > 0 and self.corrected.interval.lower >= self.gate.implied_rate
         return self.gate.met(self.passes, self.judged)
 
     @property
@@ -324,6 +348,21 @@ class ScenarioResult:
             "misses": self.misses,
             "required_passes": self.required_passes,
             "threshold": self.threshold,
+            "gate_on": "corrected" if self.corrected_applies else "observed",
+            **(
+                self.corrected.to_dict()
+                if self.corrected is not None
+                else {
+                    "corrected_rate": None,
+                    "corrected_interval": None,
+                    "judge_sensitivity": None,
+                    "judge_specificity": None,
+                    "calibration_cases_used": 0,
+                    "calibration_scope": None,
+                    "bootstrap_seed": None,
+                    "corrected_refused": None,
+                }
+            ),
             "quality_met": self.quality_met,
             "gate_passed": self.gate_passed,
             "status": self.status,
@@ -361,6 +400,16 @@ class Runner:
         self.cache = cache
         self.environ = environ
         self.target_factory = target_factory or self._http_target
+        # The calibration report for this judge, if one exists, prices its verdicts.
+        self.calibration: Calibration | None = None
+        self.calibration_note: str | None = None
+        found = load_calibration(config.report_path / CALIBRATION_REPORT)
+        if found is not None:
+            mismatch = calibration_mismatch(found, config)
+            if mismatch is None:
+                self.calibration = found
+            else:
+                self.calibration_note = f"{found.path} is not for this judge: {mismatch}"
 
     def _http_target(self, client: httpx.AsyncClient) -> Target:
         return HttpTarget(self.config.target, client, environ=self.environ)
@@ -406,7 +455,16 @@ class Runner:
         except* (TargetConfigError, CheckError) as failures:
             raise failures.exceptions[0] from None
         records = [task.result() for task in tasks]
-        return ScenarioResult(scenario, criterion, gate, records)
+        result = ScenarioResult(scenario, criterion, gate, records, self.config.run.gate_on)
+        if self.calibration is not None:
+            result.corrected = correct(
+                result.passes,
+                result.judged,
+                self.calibration,
+                criterion.id,
+                self.config.judge.min_calibration_cases,
+            )
+        return result
 
     async def _attempt(
         self,

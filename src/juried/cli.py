@@ -89,6 +89,9 @@ concurrency = 4
 # Under pytest-xdist the caps are divided by the worker count so the total in flight stays
 # as written ("global"); "worker" gives every worker the full caps.
 # concurrency_scope = "global"
+# Gate on the judge-corrected pass rate (needs a calibration report) rather than the
+# observed passes. The default becomes "corrected" in the release after 0.3.
+# gate_on = "observed"
 cache_dir = ".juried"
 # Verdicts are cached by content so an unchanged response is not judged twice. Responses
 # are sampled fresh on every run unless this is true, which replays saved responses and
@@ -115,6 +118,9 @@ votes = 1
 # case, spacing, hyphens and end of word punctuation, before the judge is asked at all.
 # Set true to require it word for word.
 # strict_quotes = false
+# A criterion with fewer labelled calibration cases than this borrows the whole set's
+# judge error rates for its corrected pass rate.
+# min_calibration_cases = 10
 # Every run reports the judge's token usage and an estimated spend from a dated table of
 # list prices. Set both to override the table, in US dollars per million tokens.
 # input_price = 2.0
@@ -177,7 +183,11 @@ INIT_GITIGNORE = ".juried/\nreports/\n"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="juried", description="Acceptance testing for LLM features, built for QA teams."
+        prog="juried",
+        description=(
+            "Acceptance testing for LLM features, with verdicts corrected for the judge's "
+            "own error rate."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"juried {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)

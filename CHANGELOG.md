@@ -53,6 +53,26 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Added
 
+- Every scenario's pass rate is corrected for the judge's own error rate. When
+  `reports/juried-calibration.json` is for the configured judge (same provider and model,
+  and the same temperature and prompt version where the report records them), juried takes
+  the judge's sensitivity and specificity from it, per criterion when the criterion has at
+  least `[judge] min_calibration_cases` (default 10) labelled cases and from the whole set
+  otherwise, and applies the Rogan-Gladen estimator with a bootstrap interval of 2,000
+  resamples over the calibration cases and the attempts together, from a fixed seed. The
+  pytest summary, the gate failure block, JUnit `user_properties`, the JSON report
+  (`corrected_rate`, `corrected_interval`, `judge_sensitivity`, `judge_specificity`,
+  `calibration_cases_used`, `calibration_scope`, `bootstrap_seed`, `corrected_refused`, and
+  a top level `calibration` entry naming the report used) and the HTML report (a
+  "Corrected" column and a note naming the report) all carry it. A judge whose sensitivity
+  plus specificity minus one is below 0.5 is "too weak to correct" and the report says so
+  with the calibration accuracy. A report for another judge is warned about, and a run
+  with no report says there is no corrected rate and how to get one.
+- `[run] gate_on = "corrected"` gates on the corrected interval's lower bound against the
+  rate `misses` implies, and the header says `gate on judge-corrected rate`. The default
+  stays `"observed"` in 0.3 so nothing changes silently; the release after 0.3 flips it.
+- The calibration report's `judge` entry records `temperature` and `prompt_version`, so a
+  report can be matched to the judge it measured.
 - Under `pytest-xdist` the target and judge concurrency caps are divided by the worker
   count, never below one each, so `concurrency = 4` with four workers is four requests in
   flight rather than sixteen; the header prints the per worker figure.
@@ -120,6 +140,10 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Changed
 
+- The tagline is "Acceptance testing for LLM features, with verdicts corrected for the
+  judge's own error rate", on PyPI, in the README and in `juried --help`, and the README's
+  "Why juried" makes the corrected rate claim. A new section, "What the judge's mistakes
+  cost you", shows the correction once and the report line it produces.
 - The README opens with "Why juried", which says what promptfoo, DeepEval and Inspect do
   not do, checked against their documentation, and a table of what each runs against,
   how each decides pass or fail, whether each samples repeatedly and whether each reports

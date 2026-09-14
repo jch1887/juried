@@ -164,7 +164,10 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "misses": 1,
         "required_passes": 19,
         "threshold": 0.7639,
+        "gate_on": "observed",
     }
+    assert report["calibration"] is None
+    assert scenario["corrected_rate"] is None and scenario["calibration_cases_used"] == 0
     assert scenario["history"][0]["content"] == "hi"
     assert report["criteria"][1]["incomplete"] == 1
     assert report["criteria"][1]["gates_failed"] == 0

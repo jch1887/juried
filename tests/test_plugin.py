@@ -1,6 +1,7 @@
 import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -315,6 +316,127 @@ def test_overrides_and_cache_flag(pytester: pytest.Pytester, fake_bot_url: str) 
     assert not (pytester.path / ".juried" / "cache").exists()
 
 
+CALIBRATION_REPORT_STUB: dict[str, Any] = {
+    "tool": "juried",
+    "generated_at": "2026-09-12T10:00:00+00:00",
+    "judge": {"provider": "stub", "model": "stub", "votes": 1},
+    "summary": {"accuracy": 0.9},
+    # 24 human passes of which the stub passed 23, 16 human fails of which it failed 14.
+    "cases": [{"criterion": "opening-hours", "human": "pass", "judge": "pass"}] * 23
+    + [{"criterion": "opening-hours", "human": "pass", "judge": "fail"}]
+    + [{"criterion": "opening-hours", "human": "fail", "judge": "fail"}] * 14
+    + [{"criterion": "opening-hours", "human": "fail", "judge": "pass"}] * 2,
+}
+
+
+def write_calibration(pytester: pytest.Pytester, report: dict[str, Any]) -> None:
+    (pytester.path / "reports").mkdir(exist_ok=True)
+    (pytester.path / "reports" / "juried-calibration.json").write_text(json.dumps(report))
+
+
+def test_corrected_rate_is_reported_when_a_calibration_report_matches(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    write_calibration(pytester, CALIBRATION_REPORT_STUB)
+    result = pytester.runpytest("-v", "-k", "hours")
+    result.assert_outcomes(passed=1)
+    # Observed 4/4 = 100%; sensitivity 23/24, specificity 14/16: (1 + 0.875 - 1) / 0.833 = 100%.
+    result.stdout.fnmatch_lines(
+        [
+            "*PASSED 4/4 (needs 4, interval 0.51 to 1.00); corrected 100% (* to 100%), judge "
+            "false pass 12%, false fail 4%*",
+            "calibration: corrected rates use juried-calibration.json (stub/stub, 40 cases, "
+            "2026-09-12)",
+        ]
+    )
+    assert "no corrected rate" not in result.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    scenario = report["criteria"][0]["scenarios"][0]
+    assert scenario["corrected_rate"] == 1.0
+    assert scenario["judge_sensitivity"] == pytest.approx(23 / 24, abs=1e-4)
+    assert scenario["calibration_cases_used"] == 40
+    assert scenario["calibration_scope"] == "criterion"
+    assert scenario["bootstrap_seed"] == 20260913
+    assert scenario["gate_on"] == "observed"
+    assert report["calibration"]["model"] == "stub"
+    assert report["calibration"]["cases"] == 40
+    html = (pytester.path / "reports" / "juried-report.html").read_text()
+    assert "Corrected rates use <code>" in html
+    assert '<th class="num">Corrected</th>' in html
+    assert '100%<br><span class="meta">' in html
+    junit = pytester.runpytest("-k", "hours", "--junitxml=out.xml")
+    junit.assert_outcomes(passed=1)
+    assert 'name="corrected_rate" value="1.0000"' in (pytester.path / "out.xml").read_text()
+    assert 'name="bootstrap_seed" value="20260913"' in (pytester.path / "out.xml").read_text()
+
+
+def test_gate_on_corrected_uses_the_corrected_lower_bound(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace("misses = 0", 'misses = 0\ngate_on = "corrected"')
+    )
+    missing = pytester.runpytest("-k", "hours")
+    assert missing.ret == pytest.ExitCode.USAGE_ERROR
+    missing.stderr.fnmatch_lines(
+        ['*gate_on = "corrected" needs a calibration report for this judge*']
+    )
+    write_calibration(pytester, CALIBRATION_REPORT_STUB)
+    result = pytester.runpytest("-v", "-k", "hours")
+    result.stdout.re_match_lines(
+        [
+            r"juried: gate on judge-corrected rate \(the corrected interval's lower bound must "
+            r"meet 100%\)"
+        ]
+    )
+    # 4/4 observed corrects to 100% whatever the judge's rates, so this gate holds; the
+    # failing direction is covered on the runner with 18 of 20.
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        ["*PASSED 4/4 (needs 4, interval 0.51 to 1.00); corrected 100% (100% to 100%)*"]
+    )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    scenario = report["criteria"][0]["scenarios"][0]
+    assert scenario["gate_on"] == "corrected" and scenario["status"] == "upheld"
+    assert (
+        "gated on the judge-corrected rate"
+        in (pytester.path / "reports" / "juried-report.html").read_text()
+    )
+    # A judge too weak to correct falls back to the observed gate and says so.
+    weak = dict(CALIBRATION_REPORT_STUB)
+    weak["cases"] = (
+        [{"criterion": "opening-hours", "human": "pass", "judge": "pass"}] * 7
+        + [{"criterion": "opening-hours", "human": "pass", "judge": "fail"}] * 3
+        + [{"criterion": "opening-hours", "human": "fail", "judge": "fail"}] * 7
+        + [{"criterion": "opening-hours", "human": "fail", "judge": "pass"}] * 3
+    )
+    write_calibration(pytester, weak)
+    fallback = pytester.runpytest("-v", "-k", "hours")
+    fallback.assert_outcomes(passed=1)
+    fallback.stdout.fnmatch_lines(
+        ["*judge too weak to correct (sensitivity 0.70 + specificity 0.70*"]
+    )
+
+
+def test_mismatched_calibration_report_is_warned_about(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    write_calibration(
+        pytester, {**CALIBRATION_REPORT_STUB, "judge": {"provider": "openai", "model": "gpt-4.1"}}
+    )
+    result = pytester.runpytest("-k", "hours")
+    result.assert_outcomes(passed=1)
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["calibration"] is None
+    assert report["criteria"][0]["scenarios"][0]["corrected_rate"] is None
+    html = (pytester.path / "reports" / "juried-report.html").read_text()
+    assert "No calibration report matched this judge" in html
+
+
 def test_xdist_workers_share_the_concurrency_caps(
     pytester: pytest.Pytester, fake_bot_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -441,13 +563,25 @@ def test_real_judge_without_calibration_report_is_warned(
     result.stdout.fnmatch_lines(
         [
             "juried: warning: no calibration report at *juried-calibration.json; these verdicts "
-            "come from anthropic/claude-sonnet-5 and nothing has checked it against human labels.*"
+            "come from anthropic/claude-sonnet-5 and nothing has checked it against human labels.*",
+            "juried: no corrected rate; run 'juried calibrate' with labelled cases to get one",
         ]
     )
-    (pytester.path / "reports").mkdir(exist_ok=True)
-    (pytester.path / "reports" / "juried-calibration.json").write_text("{}")
+    write_calibration(
+        pytester,
+        {
+            **CALIBRATION_REPORT_STUB,
+            "judge": {"provider": "anthropic", "model": "claude-haiku-4-5"},
+        },
+    )
     again = pytester.runpytest("-k", "hours")
-    assert "no calibration report" not in again.stdout.str()
+    assert "no calibration report at" not in again.stdout.str()
+    again.stdout.fnmatch_lines(
+        [
+            "*warning: *juried-calibration.json is not for this judge: it calibrated "
+            "anthropic/claude-haiku-4-5, not anthropic/claude-sonnet-5"
+        ]
+    )
 
 
 def test_stub_judge_is_not_nagged_about_calibration(

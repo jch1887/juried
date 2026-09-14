@@ -43,7 +43,7 @@
 <p class="meta">
   Generated {{ report.generated_at }} by juried {{ report.version }}.
   Judge: {{ report.judge.provider }} / <code>{{ report.judge.model }}</code> ({% if report.judge.temperature is none %}temperature not set{% else %}temperature {{ report.judge.temperature }}{% endif %}{% if report.judge.votes > 1 %}, majority of {{ report.judge.votes }} votes per response{% else %}, one verdict per response{% endif %}).
-  Defaults: {{ report.defaults.runs }} runs per scenario, gate needs {{ report.defaults.required_passes }} of {{ report.defaults.runs }} to pass ({{ report.defaults.misses }} miss{{ 'es' if report.defaults.misses != 1 else '' }} tolerated).
+  Defaults: {{ report.defaults.runs }} runs per scenario, gate needs {{ report.defaults.required_passes }} of {{ report.defaults.runs }} to pass ({{ report.defaults.misses }} miss{{ 'es' if report.defaults.misses != 1 else '' }} tolerated){% if report.defaults.gate_on == 'corrected' %}, gated on the judge-corrected rate{% endif %}.
 </p>
 
 {# Eight tiles always, plus one for replayed responses and one for split verdicts when
@@ -94,7 +94,12 @@
 <p class="warn">No scenarios were run for this criterion.</p>
 {% else %}
 {% if not rule.shown %}
-<p class="meta rule">A scenario is upheld when at least the number of runs under "Gate needs" pass, that is when no more than the tolerated misses fail. The interval is the Wilson 95% interval on the pass rate; it describes how much the rate could move on another sample and does not decide the gate. The rate, interval and gate count only attempts that reached a verdict; a scenario with transport or judge errors is incomplete, whatever its rate.</p>
+<p class="meta rule">A scenario is upheld when at least the number of runs under "Gate needs" pass, that is when no more than the tolerated misses fail{% if report.defaults.gate_on == 'corrected' %}, judged on the lower bound of the corrected interval against the rate that count implies{% endif %}. The interval is the Wilson 95% interval on the pass rate; it describes how much the rate could move on another sample{% if report.defaults.gate_on != 'corrected' %} and does not decide the gate{% endif %}. The rate, interval and gate count only attempts that reached a verdict; a scenario with transport or judge errors is incomplete, whatever its rate.</p>
+{% if report.calibration %}
+<p class="meta rule">Corrected rates use <code>{{ report.calibration.path }}</code>: {{ report.calibration.provider }} / <code>{{ report.calibration.model }}</code> against {{ report.calibration.cases }} labelled cases on {{ report.calibration.generated_at[:10] }}, accuracy {{ report.calibration.accuracy | percent }}. The correction divides out the judge's false pass and false fail rates; its interval is a bootstrap over the calibration cases and the attempts together.</p>
+{% else %}
+<p class="meta rule">No calibration report matched this judge, so there are no corrected rates: run <code>juried calibrate</code> with labelled cases to get them.</p>
+{% endif %}
 {% set rule.shown = true %}
 {% endif %}
 <table>
@@ -105,6 +110,7 @@
       <th class="num">Runs upheld / judged</th>
       <th class="num">Gate needs</th>
       <th class="num">Rate</th>
+      <th class="num">Corrected</th>
       <th class="num">Interval</th>
       <th class="num">Latency</th>
       <th>Gate</th>
@@ -118,6 +124,7 @@
       <td class="num bound">{{ scenario.passes }} / {{ scenario.judged }}{% if scenario.checks_failed %}<br><span class="meta">{{ scenario.checks_failed }} by checks</span>{% endif %}{% if scenario.transport_errors %}<br><span class="warn">{{ scenario.transport_errors }} transport</span>{% endif %}{% if scenario.judge_errors %}<br><span class="warn">{{ scenario.judge_errors }} judge</span>{% endif %}{% if scenario.split_verdicts %}<br><span class="warn">{{ scenario.split_verdicts }} split</span>{% endif %}{% if scenario.responses_from_cache %}<br><span class="failed">{{ scenario.responses_from_cache }} replayed</span>{% endif %}</td>
       <td class="num">{{ scenario.required_passes }} / {{ scenario.runs }}<br><span class="meta">{{ scenario.misses }} miss{{ 'es' if scenario.misses != 1 else '' }}</span></td>
       <td class="num">{{ scenario.pass_rate | percent }}</td>
+      <td class="num">{% if scenario.corrected_rate is not none %}{{ scenario.corrected_rate | percent }}<br><span class="meta">{{ scenario.corrected_interval.lower | percent }} to {{ scenario.corrected_interval.upper | percent }}</span>{% elif scenario.corrected_refused %}<span class="warn">judge too weak</span>{% else %}<span class="meta">none</span>{% endif %}</td>
       <td class="num">{{ scenario.interval.lower | percent }} to {{ scenario.interval.upper | percent }}</td>
       <td class="num">{% if scenario.latency.measured %}{{ scenario.latency.mean_ms | round | int }} ms<br><span class="meta">max {{ scenario.latency.max_ms | round | int }} ms</span>{% if scenario.latency.first_token.measured %}<br><span class="meta">first token {{ scenario.latency.first_token.mean_ms | round | int }} ms</span>{% endif %}{% else %}<span class="meta">not measured</span>{% endif %}</td>
       <td class="{{ scenario.status }}">{{ scenario.status }}</td>

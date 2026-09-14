@@ -150,7 +150,13 @@ def test_calibrate_reports_disagreements(
         "false_fails": 0,
         "unanimous": 3,
     }
-    assert report["judge"] == {"provider": "stub", "model": "stub", "votes": 1}
+    assert report["judge"] == {
+        "provider": "stub",
+        "model": "stub",
+        "votes": 1,
+        "temperature": None,
+        "prompt_version": "5",
+    }
     assert [case["outcome"] for case in report["cases"]] == ["agrees", "agrees", "false_pass"]
     assert main(["calibrate", "--min-accuracy", "0.9"]) == 1
     assert "judge accuracy 0.67 is below 0.90" in capsys.readouterr().out

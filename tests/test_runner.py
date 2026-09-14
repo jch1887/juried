@@ -249,6 +249,49 @@ def test_same_response_under_different_expectations_is_judged_twice(tmp_path: Pa
     assert judge.calls == 4, "a different scripted history is a different verdict"
 
 
+def test_gate_on_corrected_uses_the_corrected_interval(tmp_path: Path) -> None:
+    # A judge that never fails a good response but passes one bad response in five.
+    calibration = {
+        "tool": "juried",
+        "generated_at": "2026-09-13T00:00:00+00:00",
+        "judge": {"provider": "stub", "model": "stub", "votes": 1},
+        "summary": {"accuracy": 0.9},
+        "cases": [{"criterion": "hours", "human": "pass", "judge": "pass"}] * 30
+        + [{"criterion": "hours", "human": "fail", "judge": "fail"}] * 24
+        + [{"criterion": "hours", "human": "fail", "judge": "pass"}] * 6,
+    }
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "juried-calibration.json").write_text(json.dumps(calibration))
+    target = ScriptedTarget(["Open 9am to 5pm."] * 18 + ["Closed.", "Closed."])
+
+    def runner(gate_on: str) -> Runner:
+        config = parse_config(
+            f'[target]\nurl = "http://unused/"\n[run]\nruns = 20\nmisses = 2\n'
+            f'gate_on = "{gate_on}"\ncache_dir = "{tmp_path / ".juried"}"\n'
+            '[judge]\nprovider = "stub"\n',
+            tmp_path,
+            environ={},
+        )
+        return Runner(config, StubProvider(), Cache(config.cache_path), lambda client: target)
+
+    observed = runner("observed").run(scenario(), CRITERION)
+    assert observed.passes == 18 and observed.gate_passed
+    assert observed.corrected is not None and observed.corrected.rate == pytest.approx(0.875)
+    assert (observed.corrected.sensitivity, observed.corrected.specificity) == (1.0, 0.8)
+    assert not observed.corrected_applies
+    assert observed.to_dict()["gate_on"] == "observed"
+
+    corrected = runner("corrected").run(scenario(), CRITERION)
+    assert corrected.passes == 18
+    assert corrected.corrected is not None and corrected.corrected.interval is not None
+    assert corrected.corrected.interval.lower < 0.9 <= corrected.gate.implied_rate
+    assert corrected.corrected_applies
+    assert not corrected.gate_passed
+    assert corrected.status == "failed"
+    assert corrected.to_dict()["gate_on"] == "corrected"
+    assert corrected.to_dict()["corrected_rate"] == 0.875
+
+
 def test_check_configuration_errors_stop_the_scenario(tmp_path: Path) -> None:
     target = ScriptedTarget(["{}"])
     broken = scenario(checks=[{"json_schema": "missing.json"}])

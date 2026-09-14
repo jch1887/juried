@@ -5,7 +5,7 @@
   <a href="https://github.com/jch1887/juried/actions/workflows/live.yml"><img src="https://github.com/jch1887/juried/actions/workflows/live.yml/badge.svg" alt="Live provider contract"></a>
   <a href="https://pypi.org/project/juried/"><img src="https://img.shields.io/pypi/v/juried" alt="PyPI version"></a>
   <br>
-  Acceptance testing for LLM features, built for QA teams.
+  Acceptance testing for LLM features, with verdicts corrected for the judge's own error rate.
 </p>
 
 juried treats your LLM powered feature as a black box behind an HTTP endpoint. You write
@@ -21,8 +21,9 @@ model, and `juried calibrate` tells you how far to trust that model.
 Every LLM eval tool scores your feature with another LLM. Ask any of them how often that
 judge is wrong and you get silence: DeepEval and promptfoo report the judge's verdict as
 the result, with no error rate and no interval. juried assumes the judge is wrong some of
-the time and makes you measure how often against your team's labels before it trusts a
-number.
+the time, measures how often against your team's labels, and corrects the pass rate for
+it. A scenario that "passed 18 of 20" is reported as 84% with a 72–93% interval given a
+judge with a 6% false-pass rate, and the gate can run on that figure.
 
 The other things juried does differently follow from the same assumption. It samples each
 scenario repeatedly instead of once, because one run of a stochastic feature is an
@@ -39,7 +40,7 @@ LangSmith. juried is a gate.
 | promptfoo | Model APIs, HTTP endpoints or custom functions | Assertions per test; a model graded rubric's own pass field, with an optional score threshold | Once by default; `evaluateOptions.repeat` runs each test N times | Not reported |
 | DeepEval | A test case built in Python around the feature's captured output | Each metric scores 0 to 1 and passes at a threshold; the case passes when every metric with a threshold does | Once | Not reported |
 | Inspect | Models, through tasks and solvers in process | Scorers, including a model grader; accuracy with a standard error | Once by default; `epochs` runs each sample N times, reduced by mean | Not reported |
-| juried | The HTTP endpoint you ship | Deterministic checks, then a pinned judge's verdict per attempt; passes over attempts against a miss count | 20 attempts per scenario by default, with a Wilson interval | Accuracy, false passes and false fails against your team's labels |
+| juried | The HTTP endpoint you ship | Deterministic checks, then a pinned judge's verdict per attempt; passes over attempts against a miss count, or the judge-corrected rate | 20 attempts per scenario by default, with a Wilson interval | False pass and false fail rates against your team's labels, and a pass rate corrected for them |
 
 The competitor columns are from each tool's documentation in September 2026.
 
@@ -333,6 +334,35 @@ beneath them. A wobbly staging endpoint therefore shows up as transport errors, 
 drop in quality. A misconfigured `response_path` or a header that names an unset
 environment variable stops the run with one clear message instead of a traceback.
 Every verdict is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
+
+## What the judge's mistakes cost you
+
+A judge that passes 6% of bad responses and fails 3% of good ones does not just add noise;
+it moves the number. juried measures both rates with `juried calibrate` and, when a
+calibration report for the configured judge exists under `reports/`, corrects every
+scenario's pass rate for them:
+
+```
+corrected = (observed + specificity − 1) / (sensitivity + specificity − 1)
+```
+
+Sensitivity is the share of human-labelled passes the judge passed, specificity the share
+of labelled fails it failed. They are taken per criterion when it has at least
+`min_calibration_cases` (default 10) labelled cases under `[judge]`, otherwise from the
+whole set. The interval is a bootstrap of 2,000 resamples over the calibration cases and
+the attempts together, from a fixed seed recorded in the report, so it carries the
+uncertainty in the judge as well as in the run. Each scenario then reports:
+
+```
+18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%
+```
+
+When sensitivity plus specificity minus one is below 0.5 the judge is too weak to
+correct, and the report says so with the calibration accuracy instead of a figure. The gate
+stays on the observed passes in 0.3; set `gate_on = "corrected"` under `[run]` to gate on
+the corrected interval's lower bound against the rate `misses` implies, which the release
+after 0.3 will make the default. Without a matching calibration report the run says there
+is no corrected rate and how to get one.
 
 ## Caching
 

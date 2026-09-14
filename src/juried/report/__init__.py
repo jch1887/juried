@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from juried.config import Config
+from juried.correction import Calibration
 from juried.criteria import Criterion
 from juried.report.html import render_html
 from juried.report.json import build_report, write_json
@@ -25,8 +26,9 @@ def write_reports(
     criteria: Sequence[Criterion],
     results: Sequence[ScenarioResult],
     output_dir: Path,
+    calibration: Calibration | None = None,
 ) -> ReportPaths:
-    report = build_report(config, criteria, results)
+    report = build_report(config, criteria, results, calibration)
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = ReportPaths(output_dir / JSON_NAME, output_dir / HTML_NAME)
     write_json(report, paths.json)

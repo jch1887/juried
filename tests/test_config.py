@@ -149,6 +149,14 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_concurrency_scope_is_global_or_worker(tmp_path: Path) -> None:
+    assert parse_config(MINIMAL, tmp_path, environ={}).run.concurrency_scope == "global"
+    worker = parse_config(MINIMAL + '[run]\nconcurrency_scope = "worker"\n', tmp_path, environ={})
+    assert worker.run.concurrency_scope == "worker"
+    with pytest.raises(ConfigError, match="concurrency_scope"):
+        parse_config(MINIMAL + '[run]\nconcurrency_scope = "shared"\n', tmp_path, environ={})
+
+
 def test_adversarial_pack_defaults_off(tmp_path: Path) -> None:
     assert parse_config(MINIMAL, tmp_path, environ={}).generate.adversarial_pack is False
     on = parse_config(MINIMAL + "[generate]\nadversarial_pack = true\n", tmp_path, environ={})

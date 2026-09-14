@@ -227,6 +227,28 @@ def test_checks_decide_the_attempt_before_the_judge(tmp_path: Path) -> None:
     assert outcome.runs[0].checks[0].source == "expected"
 
 
+def test_same_response_under_different_expectations_is_judged_twice(tmp_path: Path) -> None:
+    judge = CountingStub()
+    target = ScriptedTarget(["Open 9am to 5pm."])
+    runner = make_runner(tmp_path, target, runs=1, provider=judge)
+    # No quoted phrases, so nothing is decided before the judge and the cache is in play.
+    first = runner.run(scenario(expected="Gives the hours."), CRITERION)
+    second = runner.run(scenario(expected="Gives the hours in French."), CRITERION)
+    assert judge.calls == 2, "a different expectation must not reuse the cached verdict"
+    assert not first.runs[0].verdict_cached and not second.runs[0].verdict_cached
+    # The same expectation, criterion, history and transcript is a cache hit.
+    assert runner.run(scenario(expected="Gives the hours."), CRITERION).runs[0].verdict_cached
+    assert judge.calls == 2
+    other = Criterion("other", "Other", "Something else.")
+    runner.run(scenario(criterion="other", expected="Gives the hours."), other)
+    assert judge.calls == 3, "a different criterion is a different verdict"
+    with_history = scenario(
+        expected="Gives the hours.", history=[{"role": "user", "content": "hi"}]
+    )
+    runner.run(with_history, CRITERION)
+    assert judge.calls == 4, "a different scripted history is a different verdict"
+
+
 def test_check_configuration_errors_stop_the_scenario(tmp_path: Path) -> None:
     target = ScriptedTarget(["{}"])
     broken = scenario(checks=[{"json_schema": "missing.json"}])

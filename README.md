@@ -16,6 +16,33 @@ and `--junitxml` all work and the results fit an existing CI job. The repeated r
 of the feature, not of the verdict: by default each response gets one verdict from one
 model, and `juried calibrate` tells you how far to trust that model.
 
+## Why juried
+
+Every LLM eval tool scores your feature with another LLM. Ask any of them how often that
+judge is wrong and you get silence: DeepEval and promptfoo report the judge's verdict as
+the result, with no error rate and no interval. juried assumes the judge is wrong some of
+the time and makes you measure how often against your team's labels before it trusts a
+number.
+
+The other things juried does differently follow from the same assumption. It samples each
+scenario repeatedly instead of once, because one run of a stochastic feature is an
+anecdote. Scenarios are pytest items, so `-k`, `-x`, `--junitxml` and your existing CI job
+work unchanged. It tests the HTTP endpoint you actually ship, not a function in process.
+And calibration is not a bonus feature; without it, the report tells you that its numbers
+are unchecked.
+
+If you need RAG metrics, tracing, or a hosted dashboard, use Ragas, Braintrust or
+LangSmith. juried is a gate.
+
+| | Runs against | Decides pass or fail by | Samples repeatedly | Reports judge error |
+|---|---|---|---|---|
+| promptfoo | Model APIs, HTTP endpoints or custom functions | Assertions per test; a model graded rubric's own pass field, with an optional score threshold | Once by default; `evaluateOptions.repeat` runs each test N times | Not reported |
+| DeepEval | A test case built in Python around the feature's captured output | Each metric scores 0 to 1 and passes at a threshold; the case passes when every metric with a threshold does | Once | Not reported |
+| Inspect | Models, through tasks and solvers in process | Scorers, including a model grader; accuracy with a standard error | Once by default; `epochs` runs each sample N times, reduced by mean | Not reported |
+| juried | The HTTP endpoint you ship | Deterministic checks, then a pinned judge's verdict per attempt; passes over attempts against a miss count | 20 attempts per scenario by default, with a Wilson interval | Accuracy, false passes and false fails against your team's labels |
+
+The competitor columns are from each tool's documentation in September 2026.
+
 ## Install
 
 ```
@@ -25,6 +52,23 @@ pip install juried            # add juried[schema] for json_schema checks
 Python 3.11 or later. Judges read `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the
 environment, or the variable `api_key_env` names. juried never reads a secret from disk and
 does not load `.env` itself.
+
+## Five minutes with the stub
+
+The repository's `examples/faq-bot` is a fake FAQ bot and a project set up against it, so
+from a clone you can see a whole run without an API key:
+
+```
+cd examples/faq-bot
+python server.py &                # a deterministic fake bot on port 8765
+juried generate                   # scenarios from acceptance.md, via the stub provider
+juried calibrate                  # the stub judge against 38 labelled responses
+juried run                        # 16 scenarios, 10 attempts each; one fails on purpose
+open reports/juried-report.html   # then kill %1
+```
+
+"Try it without API keys" below walks through the same sequence with the compare step and
+says what to look for.
 
 ## The commands
 
@@ -500,6 +544,10 @@ Not there yet, and shaped so they can be added without changing the scenario for
 
 - A `Target` that drives a UI rather than an HTTP endpoint.
 - Further `Provider` implementations for other judges.
+
+Out of scope, because juried is a gate and not a platform: RAG metrics such as faithfulness
+and context recall (Ragas), graded rubric scores (DeepEval), and tracing, observability
+and hosted dashboards (Braintrust, LangSmith).
 
 ## Stability
 

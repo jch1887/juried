@@ -120,6 +120,13 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Changed
 
+- The README opens with "Why juried", which says what promptfoo, DeepEval and Inspect do
+  not do, checked against their documentation, and a table of what each runs against,
+  how each decides pass or fail, whether each samples repeatedly and whether each reports
+  judge error. "Five minutes with the stub" sits under Install with the six commands that
+  matter, and the roadmap says what is out of scope and where to go for it. The PyPI
+  classifiers gain `Intended Audience :: Information Technology` for the QA teams the
+  tagline names.
 - The README's "What a run costs" starts from the fact that a run costs target calls plus
   judge calls, shows both usage lines, and shows `--dry-run`. The example project's fake
   bot now reports token counts and its `juried.toml` prices them, so the example shows a

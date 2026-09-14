@@ -172,6 +172,13 @@ def pytest_configure(config: pytest.Config) -> None:
             not config.getoption("--juried-no-cache"),
             xdist_workers(os.environ),
         )
+        if juried_config.run.gate_on == "corrected" and state.runner.calibration is None:
+            where = juried_config.report_path / CALIBRATION_REPORT
+            why = state.runner.calibration_note or f"no calibration report at {where}"
+            raise ConfigError(
+                f'gate_on = "corrected" needs a calibration report for this judge: {why}. '
+                "Run 'juried calibrate' with labelled cases, or set gate_on = \"observed\""
+            )
     except (ConfigError, CriteriaError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
     config.stash[STATE] = state
@@ -198,6 +205,11 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
             "repeated runs of a replayed scenario do not sample the feature"
         )
     lines.append(f"juried: {gate.describe()}")
+    if run.gate_on == "corrected":
+        lines.append(
+            "juried: gate on judge-corrected rate (the corrected interval's lower bound must "
+            f"meet {gate.implied_rate:.0%})"
+        )
     return lines
 
 
@@ -291,6 +303,19 @@ class ScenarioItem(pytest.Item):
                 ("transport_errors", self.result.transport_errors),
             ]
         )
+        corrected = self.result.corrected
+        if corrected is not None and corrected.rate is not None and corrected.interval:
+            self.user_properties.extend(
+                [
+                    ("corrected_rate", f"{corrected.rate:.4f}"),
+                    ("corrected_lower", f"{corrected.interval.lower:.4f}"),
+                    ("corrected_upper", f"{corrected.interval.upper:.4f}"),
+                    ("judge_sensitivity", f"{corrected.sensitivity:.4f}"),
+                    ("judge_specificity", f"{corrected.specificity:.4f}"),
+                    ("calibration_cases_used", corrected.cases_used),
+                    ("bootstrap_seed", corrected.seed),
+                ]
+            )
         if not self.result.gate_passed:
             raise GateFailure(self.result)
 
@@ -335,6 +360,8 @@ def summarise(result: ScenarioResult) -> str:
         text += f", judge split on {result.split_verdicts}"
     if result.checks_failed:
         text += f", {result.checks_failed} failed a check"
+    if result.corrected is not None:
+        text += f"; {result.corrected.describe()}"
     return text
 
 
@@ -374,6 +401,17 @@ def format_run(record: RunRecord, scenario: Scenario) -> list[str]:
     return lines
 
 
+def describe_corrected(result: ScenarioResult) -> list[str]:
+    if result.corrected is None:
+        return []
+    line = f"  corrected: {result.corrected.describe()}"
+    if result.corrected_applies:
+        line += f"; gate on the corrected lower bound against {result.gate.implied_rate:.0%}"
+    elif result.gate_on == "corrected":
+        line += "; gate fell back to the observed passes"
+    return [line]
+
+
 def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
     interval = result.interval
     scenario = f"scenario {result.scenario.id!r} ({result.scenario.name})"
@@ -398,6 +436,7 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
             f"  runs upheld: {result.passes}/{result.judged} judged = {result.pass_rate:.2f}",
             f"  gate: {result.gate.describe()}; {outcome}",
             f"  interval: Wilson 95% interval {interval.lower:.2f} to {interval.upper:.2f}",
+            *describe_corrected(result),
             f"  transport errors: {result.transport_errors}",
             f"  judge errors: {result.judge_errors}",
         ]
@@ -441,7 +480,11 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     if state is None or not state.results:
         return
     state.report_paths = write_reports(
-        state.config, list(state.criteria.values()), state.results, state.config.report_path
+        state.config,
+        list(state.criteria.values()),
+        state.results,
+        state.config.report_path,
+        state.runner.calibration,
     )
 
 
@@ -486,16 +529,25 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             yellow=True,
             bold=True,
         )
-    if (
-        state.config.judge.provider != "stub"
-        and not (state.config.report_path / CALIBRATION_REPORT).is_file()
-    ):
+    runner = state.runner
+    if runner.calibration is not None:
         terminalreporter.write_line(
-            f"juried: warning: no calibration report at "
-            f"{state.config.report_path / CALIBRATION_REPORT}; these verdicts come from "
-            f"{state.config.judge.provider}/{state.config.judge.model} and nothing has checked "
-            "it against human labels. Label real responses under calibration/ and run "
-            "'juried calibrate'",
+            f"calibration: corrected rates use {runner.calibration.describe()}"
+        )
+    elif state.config.judge.provider != "stub":
+        if runner.calibration_note:
+            terminalreporter.write_line(f"juried: warning: {runner.calibration_note}", yellow=True)
+        else:
+            terminalreporter.write_line(
+                f"juried: warning: no calibration report at "
+                f"{state.config.report_path / CALIBRATION_REPORT}; these verdicts come from "
+                f"{state.config.judge.provider}/{state.config.judge.model} and nothing has "
+                "checked it against human labels. Label real responses under calibration/ "
+                "and run 'juried calibrate'",
+                yellow=True,
+            )
+        terminalreporter.write_line(
+            "juried: no corrected rate; run 'juried calibrate' with labelled cases to get one",
             yellow=True,
         )
     if state.report_paths is not None:

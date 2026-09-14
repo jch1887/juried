@@ -11,14 +11,17 @@ from typing import Any, Literal
 import yaml
 from pydantic import Field, ValidationError
 
-from juried import __version__
+from juried import __version__, correction
 from juried.config import Config, StrictModel
 from juried.criteria import Criterion, slugify
 from juried.judge.base import Provider, Verdict, agreement, majority_verdict
+from juried.judge.prompts import PROMPT_VERSION
 from juried.report.json import SCHEMA_VERSION
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, Turn
 
-CALIBRATION_REPORT = "juried-calibration.json"
+# The report filename lives with the correction code, which the runner imports; this
+# module imports the report package, which imports the runner, so it cannot go here.
+CALIBRATION_REPORT = correction.CALIBRATION_REPORT
 
 
 class CalibrationError(Exception):
@@ -151,6 +154,8 @@ class CalibrationResult:
     model: str
     votes: int
     outcomes: list[CaseOutcome] = field(default_factory=list)
+    temperature: float | None = None
+    prompt_version: str = PROMPT_VERSION
 
     @property
     def total(self) -> int:
@@ -186,7 +191,13 @@ class CalibrationResult:
             "schema_version": SCHEMA_VERSION,
             "version": __version__,
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "judge": {"provider": self.provider, "model": self.model, "votes": self.votes},
+            "judge": {
+                "provider": self.provider,
+                "model": self.model,
+                "votes": self.votes,
+                "temperature": self.temperature,
+                "prompt_version": self.prompt_version,
+            },
             "summary": {
                 "cases": self.total,
                 "agreed": self.agreed,
@@ -232,7 +243,9 @@ def run_calibration(
     outcomes = asyncio.run(
         _judge_all(provider, by_id, cases, config.judge.votes, config.run.concurrency)
     )
-    return CalibrationResult(provider.name, provider.model, config.judge.votes, outcomes)
+    return CalibrationResult(
+        provider.name, provider.model, config.judge.votes, outcomes, provider.temperature
+    )
 
 
 def write_calibration_report(result: CalibrationResult, directory: Path) -> Path:

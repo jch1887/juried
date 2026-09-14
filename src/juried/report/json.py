@@ -8,6 +8,7 @@ from typing import Any
 
 from juried import __version__
 from juried.config import Config
+from juried.correction import Calibration
 from juried.criteria import Criterion
 from juried.pricing import TargetUsage, Usage, estimate_usd, prices_for, target_estimate_usd
 from juried.runner import ScenarioResult
@@ -65,7 +66,10 @@ def scenario_entry(
 
 
 def build_report(
-    config: Config, criteria: Sequence[Criterion], results: Sequence[ScenarioResult]
+    config: Config,
+    criteria: Sequence[Criterion],
+    results: Sequence[ScenarioResult],
+    calibration: Calibration | None = None,
 ) -> dict[str, Any]:
     by_criterion: dict[str, list[ScenarioResult]] = {c.id: [] for c in criteria}
     for result in results:
@@ -118,7 +122,9 @@ def build_report(
             "misses": gate.misses,
             "required_passes": gate.passes_needed,
             "threshold": gate.equivalent_threshold,
+            "gate_on": config.run.gate_on,
         },
+        "calibration": None if calibration is None else calibration.to_dict(),
         "summary": {
             "criteria": len(criteria_entries),
             "scenarios": len(results),

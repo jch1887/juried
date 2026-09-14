@@ -149,6 +149,21 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
     assert explicit.generate_base_url == "http://gen.test"
 
 
+def test_gate_on_and_min_calibration_cases(tmp_path: Path) -> None:
+    plain = parse_config(MINIMAL, tmp_path, environ={})
+    assert plain.run.gate_on == "observed"
+    assert plain.judge.min_calibration_cases == 10
+    corrected = parse_config(
+        MINIMAL + '[run]\ngate_on = "corrected"\n[judge]\nmin_calibration_cases = 5\n', tmp_path
+    )
+    assert corrected.run.gate_on == "corrected"
+    assert corrected.judge.min_calibration_cases == 5
+    with pytest.raises(ConfigError, match="gate_on"):
+        parse_config(MINIMAL + '[run]\ngate_on = "judge"\n', tmp_path, environ={})
+    with pytest.raises(ConfigError, match="min_calibration_cases"):
+        parse_config(MINIMAL + "[judge]\nmin_calibration_cases = 0\n", tmp_path, environ={})
+
+
 def test_concurrency_scope_is_global_or_worker(tmp_path: Path) -> None:
     assert parse_config(MINIMAL, tmp_path, environ={}).run.concurrency_scope == "global"
     worker = parse_config(MINIMAL + '[run]\nconcurrency_scope = "worker"\n', tmp_path, environ={})

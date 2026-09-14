@@ -64,6 +64,11 @@ class Gate:
     def passes_needed(self) -> int:
         return self.runs - self.misses
 
+    # The pass rate the miss count amounts to, for a gate on the corrected rate.
+    @property
+    def implied_rate(self) -> float:
+        return self.passes_needed / self.runs
+
     def met(self, passes: int, judged: int) -> bool:
         return judged > 0 and judged - passes <= self.misses
 

@@ -118,6 +118,9 @@ class RunConfig(StrictModel):
     # worker count so the total in flight stays as configured; "worker" applies them as
     # written to every worker.
     concurrency_scope: Literal["global", "worker"] = "global"
+    # "corrected" gates on the judge-corrected rate's interval instead of the observed
+    # passes. The default flips to "corrected" in the release after 0.3.
+    gate_on: Literal["observed", "corrected"] = "observed"
     cache_dir: Path = Path(".juried")
     cache_responses: bool = False
     report_dir: Path = Path("reports")
@@ -174,6 +177,9 @@ class JudgeConfig(StrictModel):
     # Quoted phrases in `expected` must match word for word, as before 0.3, rather than
     # ignoring case, spacing, hyphens and end of word punctuation.
     strict_quotes: bool = False
+    # A criterion with fewer labelled calibration cases than this borrows the whole set's
+    # judge error rates.
+    min_calibration_cases: int = Field(default=10, ge=1)
 
     @field_validator("base_url", "api_key_env")
     @classmethod

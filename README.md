@@ -14,7 +14,8 @@ scenario repeatedly, has a pinned LLM judge mark every response, and reports pas
 with confidence intervals. Scenarios are ordinary pytest tests, so `-k`, `-x`, markers
 and `--junitxml` all work and the results fit an existing CI job. The repeated runs are
 of the feature, not of the verdict: by default each response gets one verdict from one
-model, and `juried calibrate` tells you how far to trust that model.
+model, and `juried calibrate` tells you how far to trust that model. It is built for QA
+teams, who own the acceptance criteria and the labels the judge is checked against.
 
 ## Why juried
 
@@ -68,8 +69,13 @@ juried run                        # 16 scenarios, 10 attempts each; one fails on
 open reports/juried-report.html   # then kill %1
 ```
 
-"Try it without API keys" below walks through the same sequence with the compare step and
-says what to look for.
+The calibrate step is the one to read first. The stub judge agrees with 28 of the 38
+labels and passes all ten it should fail, which is the point of calibrating before you
+trust any judge. The first 32 of those cases were checked against `claude-haiku-4-5` too,
+and it agreed with every label; the report is at
+[examples/faq-bot/reports/juried-calibration.json](examples/faq-bot/reports/juried-calibration.json).
+The longer walkthrough, with the compare step and what the stub judge is, is in
+[docs/runs.md](docs/runs.md#try-it-without-api-keys).
 
 ## The commands
 
@@ -102,207 +108,20 @@ url = "https://staging.example.com/api/chat"
 headers = { Authorization = "Bearer ${STAGING_TOKEN}" }
 body = { message = "{{message}}", history = "{{history}}" }
 response_path = "choices.0.message.content"
-usage_input_path = "usage.prompt_tokens"       # optional: token counts in the reply
-usage_output_path = "usage.completion_tokens"
-input_price = 2.0                              # optional: US dollars per million tokens
-output_price = 10.0
-# cost_per_request = 0.002                     # or a flat price per call
-# stream = true                                # the endpoint streams its reply
-# stream_format = "sse"                        # or "ndjson"
-# stream_path = "choices.0.delta.content"      # text delta in each event
 
 [run]
 runs = 20          # attempts per scenario
 misses = 1         # failed attempts a scenario may have and still pass
 concurrency = 4    # requests in flight to the target, across all scenarios
-# concurrency_scope = "global"   # under pytest-xdist, share the caps across workers
 
 [judge]
 provider = "anthropic"    # anthropic, openai or stub
 model = "claude-sonnet-5" # pinned and recorded with every verdict
-concurrency = 4           # requests in flight to the judge, across all scenarios
-# base_url = "http://127.0.0.1:11434/v1"   # any OpenAI compatible endpoint, with provider = "openai"
-# api_key_env = "OLLAMA_API_KEY"           # variable holding the key, when not the provider's own
 ```
 
-Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
-the parameter, so the example leaves it out; when it is unset nothing is sent and the report
-says so.
-
-`base_url` points a provider at another host. With `provider = "openai"` any OpenAI
-compatible endpoint works as judge and generator without a new provider: Ollama at
-`http://127.0.0.1:11434/v1`, vLLM, LM Studio, OpenRouter, or Azure OpenAI with its
-deployment path. `api_key_env` names the environment variable holding the key when it is
-not `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, so a second account or a proxy can have its
-own; juried still reads nothing but the process environment, and Ollama ignores the key
-but the variable must hold something. Against a custom `base_url` the openai provider sends
-`max_tokens` rather than `max_completion_tokens`, which the compatible servers know, and
-asks for a JSON schema response as it does of OpenAI; Ollama, vLLM and LM Studio honour
-that, and a server that does not fails with the HTTP error it returns. The pinned judge
-prompt and the verdict cache are unchanged by the host: a local model is a judge like any
-other and needs calibrating like any other.
-
-A body value that is exactly `"{{message}}"` or `"{{history}}"` becomes the scenario
-message or the earlier turns as a list of `{role, content}` objects, keeping its type.
-Inside longer text `{{message}}` is replaced with the message and `{{history}}` with the
-turns as JSON. `${NAME}` anywhere in `url`, `headers` or `body` is replaced with that
-environment variable before the request is sent, and the run stops before any request if
-the variable is unset. `response_path` is a dotted path into the JSON reply, and so are
-`usage_input_path` and `usage_output_path`, which name the token counts in it if the target
-reports them; see "What a run costs".
-
-For an endpoint that streams its reply, set `stream = true`, `stream_format` (`sse` for
-server-sent events, the shape OpenAI compatible endpoints use, or `ndjson` for one JSON
-object per line, as Ollama's own API sends) and `stream_path`, the dotted path to the text
-delta in each event, such as `choices.0.delta.content` or `message.content`. juried joins
-the deltas into the response, skips events without one (a role preamble, a finish marker,
-`[DONE]`), takes token counts from whichever event carries them, and records the time to
-the first delta as well as the whole reply; the report shows both. A stream that carries
-events but never a delta at `stream_path` stops the scenario with a message showing the
-last event, as a bad `response_path` does. Retries and `${NAME}` work as for a plain
-endpoint. The example bot streams when started with `python server.py --sse`.
-
-`[generate]` takes `provider`, `model`, `temperature`, `base_url`, `api_key_env`,
-`scenarios_per_criterion`, `max_tokens` and `adversarial_pack`. `provider` and `model` default to the judge's,
-and so do `base_url` and `api_key_env` while the provider is the same. `temperature` does
-not: the judge's is chosen for consistent verdicts and generation wants variety, so it is
-unset unless you set it under `[generate]`.
-
-## Criteria and scenarios
-
-Criteria are `##` headings in a Markdown file. The heading becomes a stable id; add
-`{#id}` to fix it explicitly.
-
-```markdown
-## Refund policy
-The bot explains that any item can be returned within 14 days of delivery for a full
-refund. It must state the 14 day window.
-
-## Unknown questions {#unknown}
-When the bot cannot answer it says so and gives help@example.com.
-```
-
-Generated and hand written scenarios share one YAML shape. Hand written files go
-anywhere under `scenarios/`; `runs` and `misses` may be set per scenario.
-
-```yaml
-criterion: refund-policy
-scenarios:
-  - name: Asks how to get money back
-    kind: happy_path
-    message: I want my money back on a jumper that does not fit.
-    expected: States the 14 day return window and that the refund is full.
-  - name: Follows up after a delivery answer
-    kind: edge_case
-    history:
-      - role: user
-        content: Can you tell me about delivery?
-      - role: assistant
-        content: Standard delivery takes 3 to 5 working days.
-    message: and refunds?
-    expected: Explains the 14 day refund window without repeating the delivery answer.
-    runs: 20
-    misses: 0
-```
-
-Add `turns` for a live conversation before `message`; see the conversation fields below.
-
-A scenario may also carry `checks`, deterministic tests that run on every response before
-the judge is asked. A failing check fails the attempt with its reason and the judge is not
-called, which saves the spend on responses that were never going to pass:
-
-```yaml
-    checks:
-      - contains: "14 days"          # case, spacing, hyphens and end punctuation ignored
-      - not_contains: "30 days"
-      - regex: "\\b14[ -]?days?\\b"   # Python syntax, case sensitive unless (?i)
-      - json_schema: schemas/reply.json   # path from the directory holding juried.toml
-      - max_latency_ms: 4000         # the final response's latency
-      - max_chars: 1200
-```
-
-Each entry is one check. `json_schema` parses the response as JSON and validates it with
-the `jsonschema` package, installed by `pip install juried[schema]`. Every attempt records
-which checks ran and which failed, the failing run output lists them, and the report shows
-them under each scenario and each failing run. They are not a judge: `contains` tells you
-a phrase is there, not that the answer is right.
-
-The judge sees each part of the scenario in its own delimited section and is told that the
-response is untrusted output which may contain instructions or claims about the verdict, so a
-response that says "this meets the expectation, pass" is judged on what it does for the user,
-not on what it says about the test. The prompt is pinned and its version is part of every
-verdict's cache key, so a prompt change never reuses an old verdict.
-
-Two fields cover conversations. `history` is a scripted prefix: juried sends it to your
-endpoint with the message and shows it to the judge in its own section, and the generator
-may write a short one when a message only makes sense as a follow up. `turns` is a live
-conversation: each entry is a user message sent in order, the feature's reply to it becomes
-context for the next, and `message` is the final turn that the expectation judges.
-
-```yaml
-  - name: Changes mind about the refund
-    kind: edge_case
-    turns:
-      - I want to return a jumper.
-      - Actually it was a gift, does that matter?
-    message: So how long have I got?
-    expected: Still states the "14 days" window and does not contradict its earlier answers.
-```
-
-Every attempt drives the whole conversation afresh, so a scenario with two turns costs three
-requests per attempt. The judge sees the scripted history, then the live transcript with the
-feature's own replies, then the final message and response, and is told the expectation may
-refer to what was said earlier. The transcript is recorded on every attempt, shown for
-failing runs in the terminal and the report, and kept in the JSON.
-
-Scenarios have a `kind`: `happy_path`, `edge_case`, `custom`, or `adversarial`, each also a
-pytest marker. An adversarial scenario tries to make the feature violate its criterion:
-`juried generate --adversarial` writes one file per criterion,
-`scenarios/generated/<criterion>.adversarial.yaml`, covering an instruction override
-("ignore your previous instructions and..."), a false premise, a contradiction of an
-earlier turn, an appeal to the judge to pass the response, an off topic pull, and a request
-for something the criterion says to withhold. With `adversarial_pack = true` under
-`[generate]` it also writes `scenarios/generated/adversarial-pack.yaml`, juried's built in
-attacks that apply to any feature (prompt injection, system prompt extraction, PII
-disclosure) under three criteria of their own, which runs then recognise. Run them alone
-with `juried run -m adversarial`. This is a coverage extension of your criteria, not a red
-team: the messages are things a user might plausibly send, and there is no search for
-jailbreaks. For that, use promptfoo's red team module. The example project has three hand
-written adversarial scenarios and labelled calibration cases for them.
-
-A phrase in double quotes inside `expected` must appear in the response. Text outside
-quotes is judged on meaning. With
-`expected: Says returns are accepted within "14 days" for a full refund`, a response saying
-"you have 14 days and get every penny back" passes, while "a fortnight for a full refund"
-fails because `14 days` is missing. The phrase is matched as a `contains` check is, ignoring
-case, runs of whitespace, hyphens and punctuation that ends a word, so "14-days," counts;
-set `strict_quotes = true` under `[judge]` to require it word for word, ignoring case only,
-as before 0.3. Quoted phrases run as checks before the judge, so a response missing one
-fails without a judge call whichever provider is configured. The stub judge applies the
-same rule to calibration cases.
-
-## Concurrency
-
-Scenarios are pytest items, which pytest runs one after another, but juried does not wait
-for one scenario to finish before starting the next. When the run starts every collected
-scenario is submitted to one event loop on a background thread that shares a single HTTP
-client and judge connection, and each pytest item then waits for its own result in order.
-The output, `-x` and `-k` behave exactly as before; the difference is that a run of fifty
-scenarios at ten runs each is bounded by the two concurrency caps, not by fifty sequential
-event loops. `run.concurrency` caps requests in flight to your endpoint and
-`judge.concurrency` caps requests to the judge, so a slow judge does not hold up sampling
-and a fragile staging endpoint can be throttled without starving the judge. Stopping with
-`-x` cancels the scenarios that were still in flight. `.juried/verdicts.jsonl` is appended
-under a file lock, so `pytest-xdist` workers do not interleave lines.
-
-Under `pytest-xdist` every worker is its own process with its own event loop, so the caps
-would otherwise apply per worker: `concurrency = 4` with `-n 4` would be sixteen requests
-in flight. juried reads the worker count and divides both caps by it, never below one each,
-so the total stays what the file says; the header prints the per worker figure
-(`concurrency 4 target / 4 judge (1 target / 1 judge per worker, 4 xdist workers, scope
-global)`). Set `concurrency_scope = "worker"` under `[run]` to give every worker the full
-caps instead. Scenarios are only split across workers, never a scenario's attempts, so a
-single scenario's runs stay on one worker.
+The full reference (usage and pricing keys, streaming, `base_url`, `api_key_env` and
+`[generate]`) is in [docs/configuration.md](docs/configuration.md); criteria, the scenario
+YAML, checks, conversations and adversarial scenarios in [docs/scenarios.md](docs/scenarios.md).
 
 ## How a scenario passes
 
@@ -322,19 +141,11 @@ juried prints what the gate needs at the top of every run
 (`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
 and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
 release: juried derives `misses` from it and prints a notice naming the value to set instead.
-
-A failing gate is a normal pytest failure that shows the passes, the misses tolerated, the
-interval and the first failing transcript with the judge's reason.
-
-Errors are kept out of the maths. An HTTP error from your endpoint is a transport error
-and a judge that cannot answer (missing key, refusal, API outage) is a judge error; neither
-counts as a failed run. The pass rate and interval are computed over the attempts that
-reached a verdict, and the scenario is reported as incomplete, which still fails the
-pytest item, with the errors listed first and the quality figures for the judged attempts
-beneath them. A wobbly staging endpoint therefore shows up as transport errors, not as a
-drop in quality. A misconfigured `response_path` or a header that names an unset
-environment variable stops the run with one clear message instead of a traceback.
-Every verdict is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
+Except at the default of 20 runs, where both need 19 passes, the default of one miss is
+stricter than the old threshold of 0.7 on the lower bound, which tolerated 4 misses at 30
+runs and 8 at 50, so a project that was green under 0.2 may fail under 0.3 until it sets
+`runs` and `misses` deliberately. Failing gates, errors, concurrency, caching, what a run
+costs and the dry run are in [docs/runs.md](docs/runs.md).
 
 ## What the judge's mistakes cost you
 
@@ -347,41 +158,24 @@ scenario's pass rate for them:
 corrected = (observed + specificity − 1) / (sensitivity + specificity − 1)
 ```
 
-Sensitivity is the share of human-labelled passes the judge passed, specificity the share
-of labelled fails it failed. They are taken per criterion when it has at least
-`min_calibration_cases` (default 10) labelled cases under `[judge]`, otherwise from the
-whole set. The interval is a bootstrap of 2,000 resamples over the calibration cases and
-the attempts together, from a fixed seed recorded in the report, so it carries the
-uncertainty in the judge as well as in the run. Each scenario then reports:
+This is the Rogan–Gladen estimator, used in epidemiology to correct a test's observed
+prevalence for the test's sensitivity and specificity. The arithmetic can land outside 0 to
+1, and juried clamps it to that range: a scenario the judge passed every time is reported
+as 100% whatever the judge's rates, and one it passed less often than its false pass rate
+as 0%. When sensitivity plus specificity minus one is below 0.5 juried refuses to correct
+at all and reports the judge as too weak, with the calibration accuracy in place of a
+figure. With few labelled cases the corrected interval is wider than the observed one, not
+narrower, because it carries the uncertainty in the judge's error rates as well as in the
+run. That is intended; more labels tighten it.
+
+Each scenario then reports:
 
 ```
 18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%
 ```
 
-When sensitivity plus specificity minus one is below 0.5 the judge is too weak to
-correct, and the report says so with the calibration accuracy instead of a figure. The gate
-stays on the observed passes in 0.3; set `gate_on = "corrected"` under `[run]` to gate on
-the corrected interval's lower bound against the rate `misses` implies, which the release
-after 0.3 will make the default. Without a matching calibration report the run says there
-is no corrected rate and how to get one.
-
-## Caching
-
-Every run samples the feature afresh. That is the point of the tool: a scenario only shows
-its flakiness if each attempt is a new request, so responses are never replayed by default.
-Verdicts are cached in `.juried/cache/verdicts` by content hash, so a response the judge
-has already seen, word for word, is not judged again; the cache key includes the judge
-model, temperature and prompt version, and `--no-cache` bypasses it. Verdicts are not
-cached at all when `votes` is above 1, since the point of votes is to re-measure agreement.
-
-For development you can opt in to replaying responses with `juried run --cache-responses`
-(or `cache_responses = true` under `[run]`). Responses are then stored by target, message,
-history and attempt number and read back on the next run, which makes the run free but
-also frozen: a replayed scenario returns the same attempts every time and cannot detect
-non-determinism. juried refuses to let that pass quietly. The header says
-`cache verdicts and responses`, each replayed scenario is marked in the pytest output and
-in the report, and the summary ends with a warning counting the replayed responses.
-Do not cache `.juried/cache/responses` in CI, and do not set `cache_responses` there.
+How the rates are taken per criterion, the bootstrap behind the interval, and `gate_on`
+are in [docs/judge.md](docs/judge.md).
 
 ## Trusting the judge
 
@@ -389,122 +183,16 @@ An LLM judge is a model like any other, and juried does not pretend otherwise. W
 gives you:
 
 - **One verdict per response by default.** Each response is judged once by the configured
-  model. The judge's reason is stored with every verdict, and every verdict is appended to
-  `.juried/verdicts.jsonl` with the model, prompt version and timestamp, so any verdict can
-  be audited later.
-- **Votes, when you want agreement measured.** Set `votes = 3` (any odd number) under
-  `[judge]` to judge each response that many times and take the majority. The report then
-  shows the number of split verdicts per scenario and the pytest summary flags them
-  (`judge split on 2`). Split verdicts mean the expectation is ambiguous or the judge is
-  unreliable on it; either way, look at the wording before trusting the verdict. With
-  votes above 1 verdicts are never read from or written to the cache, because a cached
-  majority would freeze the agreement figure; every run re-judges and re-measures it, and
-  the header says so (`cache off (votes > 1)`).
+  model, and every verdict is stored with its reason, model, prompt version and timestamp.
+- **Votes, when you want agreement measured.** `votes = 3` under `[judge]` judges each
+  response that many times and reports how often the votes split, which measures the
+  judge's stability, not its correctness.
+- **Calibration against human labels.** `juried calibrate` judges responses your team has
+  labelled and reports the accuracy and the false pass and false fail rates, and
+  `juried label` grows that set from real runs.
 
-  Votes measure stability, not correctness. Every vote comes from the same model with the
-  same prompt, so agreement tells you whether the judge is consistent, not whether it is
-  right. A judge that is confidently wrong agrees with itself every time, and a model run
-  at temperature 0 will show agreement of 1.0 on every scenario while saying nothing about
-  whether its verdicts match a human's. Votes catch a judge that wavers; only calibration,
-  below, catches a judge that is wrong.
-- **Calibration against human labels.** Put responses your team has judged by hand under
-  `calibration/`, then run `juried calibrate`. It judges each one with the configured
-  model and prints every disagreement, the accuracy, and the counts of false passes and
-  false fails. `--min-accuracy 0.9` makes it exit non zero below that figure, so a judge
-  change is caught in CI. The result is also written to `reports/juried-calibration.json`.
-
-```yaml
-criterion: refund-policy
-cases:
-  - name: Vague answer without the window
-    message: I want my money back on a jumper that does not fit.
-    expected: States the "14 days" return window and that the refund is "full".
-    response: Returns are accepted for a full refund, please contact us to arrange one.
-    verdict: fail
-    note: drops the 14 day window
-```
-
-Label at least a handful of cases per criterion, including borderline responses and ones
-that contain the right words for the wrong reason. Rerun `calibrate` whenever the judge
-model, temperature or prompt changes.
-
-The set grows from real output. After every run juried queues the responses worth a
-human's eye in `.juried/label-queue.jsonl`, each tagged with why: the judge's votes split,
-the scenario finished within one miss of its gate, a deterministic check and the judge
-disagreed, the judge's reason hedged (a fixed word list in `label.py`), or a random 2% of
-the rest so the set is not only hard cases; up to `queue_size` (default 50) under
-`[label]`, newest first, deduplicated by content. `juried label` shows each one in the
-terminal with the judge's verdict last so you decide first, takes `p`, `f`, `s` (skip),
-`n` (note) or `q`, and appends every label to `calibration/from-runs/<criterion>.yaml`
-in the usual shape with a `source` naming the run; `juried calibrate` picks that
-directory up and says how many cases came from hand labelling and how many from runs.
-`juried label --html` writes `reports/label-queue.html`, a page with no scripts, and a
-`label-queue.csv` beside it, for a QA lead to mark up away from the terminal, and
-`juried label --import` reads either back. The loop is: run, label what the run flags,
-calibrate, and the corrected figure tightens as the judge's error rates are measured on
-more of your own responses. The run's summary says how many responses are waiting and how
-big the calibration set is per criterion.
-
-`juried init` writes `calibration/example.yaml` with two placeholder cases; replace them
-with real responses from your feature, labelled by your team. Until a calibration report
-exists under `reports/`, every run with a real judge ends with a warning that its verdicts
-have not been checked against human labels. For a worked set covering the hard categories
-(inverted meaning, talking to the judge, hedged guesses, wrong contact details, empty and
-off topic answers) see `examples/faq-bot/calibration/`.
-
-## What a run costs
-
-A run costs target calls plus judge calls: each attempt sends every turn and the final
-message to your endpoint, then sends the response to the judge once per vote, so twenty
-runs of a two turn scenario are sixty requests to the feature and twenty to the judge.
-Every run counts both sides and prints them at the end:
-
-```
-judge usage: 41,220 input + 2,860 output tokens over 130 call(s), estimated $0.11 at list prices of 2026-09
-target usage: 260 requests, 84,100 input + 12,300 output tokens, estimated $0.43 at configured prices
-estimated run cost: $0.54 (judge $0.11 + target $0.43)
-```
-
-The judge side comes from the token counts in each provider response, priced from a built
-in table of list prices, dated in the output, which covers the current Anthropic and OpenAI
-models. Set `input_price` and `output_price` under `[judge]`, in US dollars per million
-tokens, to use your own figures; for a model not in the table the run reports the tokens
-and says the price is unknown until you set them. Cached verdicts cost nothing and are not
-counted. `juried generate` and `juried calibrate` print their own judge usage line.
-
-The target side is always counted in requests, with the HTTP status, bytes and latency of
-each recorded per attempt, but juried cannot know what your endpoint costs unless you say.
-If its reply carries token counts, name them with `usage_input_path` and
-`usage_output_path` under `[target]` and set `input_price` and `output_price` there; for an
-endpoint that reports no tokens set `cost_per_request`, a flat figure per call. With
-neither, the line says so:
-
-```
-target usage: 260 requests, cost unknown (set [target] input_price/output_price or cost_per_request)
-```
-
-The combined line appears only when both sides have a figure. All of it is in the JSON
-report under `summary.usage.judge`, `summary.usage.target` and
-`summary.usage.total_estimate_usd` (null when unknown), and per scenario under `usage`, and
-the HTML report's spend tile shows both sides. It is an estimate: cache reads are priced as
-ordinary input, the table lags price changes, and your account may have its own rates.
-
-To see the bill before paying it, run `juried run --dry-run` (or `juried estimate`). It
-collects every scenario, counts the requests each side would get, allowing for `turns` and
-`votes`, prices them and exits without sending anything:
-
-```
-juried: dry run, nothing is sent
-16 scenarios under scenarios, 160 attempts in all, 1 with live turns
-target: 180 requests (one per turn and final message per attempt), estimated $0.17 at 400 input + 150 output tokens per call (assumed) and configured prices
-judge: 160 calls (160 attempts) to claude-sonnet-5, estimated $0.37 at 400 input + 150 output tokens per call (assumed) and list prices of 2026-09
-estimated run cost: $0.54 (judge $0.37 + target $0.17)
-note: assumed token counts are a placeholder; a run reports the real figures and the next dry run uses its averages
-```
-
-Until a report exists the dry run assumes 400 input and 150 output tokens per call on each
-side and says so; once `reports/juried-report.json` exists it uses that run's averages
-instead.
+The full account, with the calibration YAML shape and the label queue, is in
+[docs/judge.md](docs/judge.md).
 
 ## Comparing runs
 
@@ -516,25 +204,8 @@ one against it:
 juried compare reports/baseline.json reports/juried-report.json --json reports/compare.json
 ```
 
-Scenarios are matched by id. The command lists, in this order, gates that were upheld and
-now fail, scenarios that became incomplete through transport or judge errors, new scenarios
-that fail their gate, and scenarios whose pass rate dropped by a statistically significant
-amount even though the gate still holds. Improvements and added or removed scenarios
-follow. The exit status is 1 when there is any regression, so it works as a CI step, and
-`--json` writes the same findings to a file.
-
-A drop is tested, not subtracted: with 20 runs a pass rate has an interval about 20 points
-wide, so 20/20 against 18/20 is the kind of difference two samples of the same feature
-produce. For each scenario in both reports juried runs Fisher's exact test, one sided for a
-decrease, on the passes and fails, and reports the difference with its Newcombe 95%
-interval. A drop is a regression when its p-value is below `--alpha` (default 0.05) and the
-rate fell by at least `--min-effect` (default 0.10, ten points); smaller or less certain
-drops are listed under "drops within noise" with their p-value and interval, so they are
-visible without failing the step. `--tolerance` from 0.2 is a deprecated alias for
-`--min-effect`. After the table a note says the smallest drop the run counts could have
-shown, for example `at 20 vs 20 runs this comparison can only detect drops of about 34
-points or more`; a comparison that must catch smaller regressions needs more runs on both
-sides.
+The test behind it, `--alpha`, `--min-effect` and the detectable drop note are in
+[docs/compare.md](docs/compare.md).
 
 ## The report
 
@@ -548,53 +219,10 @@ with the response and the judge's reason. Criteria with no scenarios are called 
 coverage gaps are visible. The JSON file holds the same structure plus every attempt, for
 anyone who wants to chart trends.
 
-**Reading the interval.** Next to every pass rate the report shows its Wilson 95% interval,
-computed over the attempts that reached a verdict. It describes how far the rate could move
-on another sample and does not decide the gate: at 20 runs it is about 20 points wide, so
-18 of 20 is reported as 90% with an interval of 70% to 97%, and two runs whose intervals
-overlap have not been shown to differ. The JSON report also carries `threshold`, the lower
-bound the gate is equivalent to, for dashboards that plotted it before 0.3.
-
 <img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report for the example project: totals including judge spend, two opening hours scenarios upheld at 10 of 10, and a refund scenario failed at 8 of 10 because its lower bound of 49% is below the 70% threshold" width="900">
 
-The screenshot is the example project's hand written scenarios under the stub judge, which
-is why the spend is nil, taken with juried 0.2.1, when the gate was a threshold on the
-lower bound. The refund scenario passed eight of ten runs and fails its gate; in 0.3 the
-same table shows the passes the gate needs (9 of 10 in the example) in place of the
-threshold and lower bound columns. The warning above the tables is the coverage check: one
-criterion had no scenarios in that run.
-
-## Try it without API keys
-
-```
-cd examples/faq-bot
-python server.py &       # deterministic fake FAQ bot on port 8765
-juried generate          # uses the stub provider from juried.toml
-JURIED_RUN_REPORT_DIR=reports/stub juried calibrate   # the stub against the 38 cases in calibration/
-juried run               # 16 scenarios, one fails its gate on purpose
-cp reports/juried-report.json reports/baseline.json
-juried run               # sample the bot again
-juried compare reports/baseline.json reports/juried-report.json   # exit 1 only on a significant drop; 8/10 to 7/10 is noise
-kill %1
-```
-
-The example's `juried.toml` sets `runs = 10` so the loop is quick; a real project should
-keep the default of 20. `make example` runs the same sequence from the repository root.
-
-The stub judge is a substring matcher: it passes any non empty response that contains every
-`"quoted phrase"` in `expected` and ignores the rest of the expectation. It shows the
-mechanics of runs, gates and reports, and says nothing about how an LLM judge behaves.
-One hand written refund scenario fails its gate on purpose, because the fake bot drops
-the 14 day detail every fourth time, which is the kind of flakiness juried exists to catch.
-
-`juried calibrate` in the same directory runs the stub against the 38 labelled responses
-under `calibration/`, with its report sent to `reports/stub/` so that it does not overwrite
-the committed one. The stub agrees with 28 of the 38 labels and passes the ten it should
-fail, which is the point: calibrate before you trust any judge. The first 32 of those cases were
-checked against `claude-haiku-4-5` on 13 September 2026 and it agreed with every label; the
-report is at
-[examples/faq-bot/reports/juried-calibration.json](examples/faq-bot/reports/juried-calibration.json).
-`docs/calibration.md` explains how to build a set of your own from real responses.
+Reading the interval, and what the screenshot shows, are in
+[docs/runs.md](docs/runs.md#the-report).
 
 ## Roadmap
 
@@ -606,39 +234,6 @@ Not there yet, and shaped so they can be added without changing the scenario for
 Out of scope, because juried is a gate and not a platform: RAG metrics such as faithfulness
 and context recall (Ragas), graded rubric scores (DeepEval), and tracing, observability
 and hosted dashboards (Braintrust, LangSmith).
-
-## Stability
-
-From 1.0.0 onwards juried keeps these backwards compatible within a major version, and a
-change to any of them is a new major version:
-
-- `juried.toml`: every key, its type, its default and its meaning. New keys may be added;
-  existing keys are not removed or repurposed.
-- The scenario YAML shape: `criterion`, `scenarios`, and each scenario's `id`, `name`,
-  `kind`, `message`, `expected`, `history`, `turns`, `checks`, `runs`, `misses` and `tags`.
-  `threshold` is deprecated and is removed in 0.4.
-- The calibration YAML shape: `criterion`, `cases`, and each case's `name`, `criterion`,
-  `message`, `history`, `expected`, `response`, `verdict` and `note`.
-- The JSON report and the calibration report, governed by their `schema_version` field.
-  Fields may be added without a bump; a field changing meaning or going away bumps it, and
-  `juried compare` refuses reports of different versions.
-- The CLI: the subcommands `init`, `generate`, `calibrate`, `run`, `estimate` and `compare`,
-  their flags, their exit codes, and the pass through of pytest arguments from `run`.
-- The pytest markers `juried`, `criterion(id)`, `happy_path`, `edge_case`, `custom` and
-  `adversarial`, and
-  the `user_properties` written to JUnit XML: `criterion`, `passes`, `runs`, `pass_rate`,
-  `interval_lower`, `interval_upper`, `misses_tolerated`, `passes_needed`, `threshold` and
-  `transport_errors`.
-- The `JURIED_*` environment variables: `JURIED_<SECTION>_<KEY>` overrides for every config
-  key, and `JURIED_LIVE`.
-
-Explicitly not covered, and free to change in any release: the judge and generation prompts
-(their version is recorded with every verdict so a change never reuses an old one), the HTML
-report layout, the pricing table and its dates, the terminal output wording, and the cache
-layout under `.juried/`.
-
-Until 1.0.0, a 0.x release may still change any of the items above. Every such change is
-listed under "Breaking changes" in `CHANGELOG.md` for that release.
 
 ## Development
 
@@ -654,6 +249,7 @@ when the runner has one, skipping with a notice when it does not. Every run uplo
 pytest output as an artifact, so a green run can be checked to have tested both providers
 rather than skipped them; in this repository a skipped provider fails the run. See CONTRIBUTING.md for how to run it locally, and for
 the development install. Changes are recorded in `CHANGELOG.md` and the release steps in
-`docs/releasing.md`.
+`docs/releasing.md`. The interfaces kept stable across releases are listed in
+[docs/stability.md](docs/stability.md).
 
 Licensed under the MIT licence.

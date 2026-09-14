@@ -36,7 +36,7 @@ are unchecked.
 If you need RAG metrics, tracing, or a hosted dashboard, use Ragas, Braintrust or
 LangSmith. juried is a gate.
 
-| | Runs against | Decides pass or fail by | Samples repeatedly | Reports judge error |
+| Tool | Runs against | Decides pass or fail by | Samples repeatedly | Reports judge error |
 |---|---|---|---|---|
 | promptfoo | Model APIs, HTTP endpoints or custom functions | Assertions per test; a model graded rubric's own pass field, with an optional score threshold | Once by default; `evaluateOptions.repeat` runs each test N times | Not reported |
 | DeepEval | A test case built in Python around the feature's captured output | Each metric scores 0 to 1 and passes at a threshold; the case passes when every metric with a threshold does | Once | Not reported |
@@ -141,11 +141,12 @@ juried prints what the gate needs at the top of every run
 (`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
 and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
 release: juried derives `misses` from it and prints a notice naming the value to set instead.
-Except at the default of 20 runs, where both need 19 passes, the default of one miss is
-stricter than the old threshold of 0.7 on the lower bound, which tolerated 4 misses at 30
-runs and 8 at 50, so a project that was green under 0.2 may fail under 0.3 until it sets
-`runs` and `misses` deliberately. Failing gates, errors, concurrency, caching, what a run
-costs and the dry run are in [docs/runs.md](docs/runs.md).
+At 20 runs the old gate also needed 19 passes, but by a margin of a thousandth: 18 of 20
+has a Wilson lower bound of 0.699 against a threshold of 0.700. Above 20 runs the old
+threshold tolerated more misses, 4 at 30 runs and 8 at 50, so a project that raised `runs`
+and was green under 0.2 may fail under 0.3 until it sets `misses` deliberately. Failing
+gates, errors, concurrency and caching are in [docs/runs.md](docs/runs.md); what a run
+costs and the dry run in [docs/costs.md](docs/costs.md).
 
 ## What the judge's mistakes cost you
 
@@ -174,8 +175,10 @@ Each scenario then reports:
 18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%
 ```
 
-How the rates are taken per criterion, the bootstrap behind the interval, and `gate_on`
-are in [docs/judge.md](docs/judge.md).
+In 0.3 the corrected rate is reported and the gate still runs on the observed passes,
+unless you set `gate_on = "corrected"` under `[run]`, which becomes the default in the
+release after. How the rates are taken per criterion, the bootstrap behind the interval,
+and `gate_on` are in [docs/judge.md](docs/judge.md).
 
 ## Trusting the judge
 
@@ -221,8 +224,9 @@ anyone who wants to chart trends.
 
 <img src="https://raw.githubusercontent.com/jch1887/juried/main/docs/report.png" alt="juried report for the example project: totals including judge spend, two opening hours scenarios upheld at 10 of 10, and a refund scenario failed at 8 of 10 because its lower bound of 49% is below the 70% threshold" width="900">
 
-Reading the interval, and what the screenshot shows, are in
-[docs/runs.md](docs/runs.md#the-report).
+The screenshot predates 0.3: it shows the threshold and lower bound columns that the
+passes-needed column has since replaced. Reading the interval, and the rest of what it
+shows, are in [docs/runs.md](docs/runs.md#the-report).
 
 ## Roadmap
 

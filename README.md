@@ -79,6 +79,7 @@ juried generate                  # turns each criterion into scenarios/generated
 juried generate --adversarial    # scenarios that try to make the feature violate each criterion
 juried calibrate                 # judges responses your team labelled; how far to trust the judge
 juried run                       # runs every scenario N times under pytest and writes the report
+juried label                     # labels the responses the run queued, growing the calibration set
 juried compare old.json new.json # flags scenarios that got worse between two reports
 juried estimate                  # what a run would send and cost, without sending anything
 ```
@@ -426,6 +427,23 @@ cases:
 Label at least a handful of cases per criterion, including borderline responses and ones
 that contain the right words for the wrong reason. Rerun `calibrate` whenever the judge
 model, temperature or prompt changes.
+
+The set grows from real output. After every run juried queues the responses worth a
+human's eye in `.juried/label-queue.jsonl`, each tagged with why: the judge's votes split,
+the scenario finished within one miss of its gate, a deterministic check and the judge
+disagreed, the judge's reason hedged (a fixed word list in `label.py`), or a random 2% of
+the rest so the set is not only hard cases; up to `queue_size` (default 50) under
+`[label]`, newest first, deduplicated by content. `juried label` shows each one in the
+terminal with the judge's verdict last so you decide first, takes `p`, `f`, `s` (skip),
+`n` (note) or `q`, and appends every label to `calibration/from-runs/<criterion>.yaml`
+in the usual shape with a `source` naming the run; `juried calibrate` picks that
+directory up and says how many cases came from hand labelling and how many from runs.
+`juried label --html` writes `reports/label-queue.html`, a page with no scripts, and a
+`label-queue.csv` beside it, for a QA lead to mark up away from the terminal, and
+`juried label --import` reads either back. The loop is: run, label what the run flags,
+calibrate, and the corrected figure tightens as the judge's error rates are measured on
+more of your own responses. The run's summary says how many responses are waiting and how
+big the calibration set is per criterion.
 
 `juried init` writes `calibration/example.yaml` with two placeholder cases; replace them
 with real responses from your feature, labelled by your team. Until a calibration report

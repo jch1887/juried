@@ -231,27 +231,36 @@ async def iter_events(
 ) -> AsyncIterator[StreamEvent]:
     data_lines: list[str] = []
     size = 0
-    # aiter_lines strips the line endings, so one byte per line stands in for them.
-    async for raw in response.aiter_lines():
-        line = raw.rstrip("\r\n")
-        if stream_format == "ndjson":
-            if line.strip():
-                yield StreamEvent(decode_event(line, url), len(raw.encode("utf-8")) + 1)
-            continue
-        size += len(raw.encode("utf-8")) + 1
-        if line == "":
-            if data_lines:
-                payload = "\n".join(data_lines)
-                data_lines, event_size, size = [], size, 0
-                if payload.strip() == "[DONE]":
-                    return
-                yield StreamEvent(decode_event(payload, url), event_size)
-            continue
-        if line.startswith(":"):
-            continue
-        field, _, value = line.partition(":")
-        if field == "data":
-            data_lines.append(value.removeprefix(" "))
+    # aiter_lines strips the line endings, so one byte per line stands in for them. The
+    # generator is closed explicitly: a stream that ends at [DONE] would otherwise leave
+    # it to a finaliser that cannot await.
+    lines = response.aiter_lines()
+    try:
+        async for raw in lines:
+            line = raw.rstrip("\r\n")
+            if stream_format == "ndjson":
+                if line.strip():
+                    yield StreamEvent(decode_event(line, url), len(raw.encode("utf-8")) + 1)
+                continue
+            size += len(raw.encode("utf-8")) + 1
+            if line == "":
+                if data_lines:
+                    payload = "\n".join(data_lines)
+                    data_lines, event_size, size = [], size, 0
+                    if payload.strip() == "[DONE]":
+                        return
+                    yield StreamEvent(decode_event(payload, url), event_size)
+                continue
+            if line.startswith(":"):
+                continue
+            field, _, value = line.partition(":")
+            if field == "data":
+                data_lines.append(value.removeprefix(" "))
+    finally:
+        # httpx types the iterator without aclose; at runtime it is an async generator.
+        closer = getattr(lines, "aclose", None)
+        if closer is not None:
+            await closer()
     if data_lines:
         payload = "\n".join(data_lines)
         if payload.strip() != "[DONE]":

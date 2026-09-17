@@ -7,35 +7,7 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
-### Added
-
-- Sequential stopping. A scenario ends as soon as its gate is decided: lost once the
-  failed attempts exceed `misses`, won once the passes reach `runs - misses`. Attempts not
-  yet sent are skipped, attempts in flight finish and count, and nothing is cancelled mid
-  request. A passing scenario saves at most `misses` attempts while a failing one can stop
-  at attempt `misses + 1`, so the value is fast failure on a bad deploy. `[run] early_stop`
-  (default true), `JURIED_RUN_EARLY_STOP` and `juried run --no-early-stop` control it;
-  `gate_on = "corrected"` forces full sampling and the header says so. The header prints
-  `early stop on (a scenario ends once its gate is decided)`, the summary
-  `early stop saved 14 of 400 planned attempts`, and every scenario records
-  `attempts_planned`, `attempts_made` (requests that completed, transport errors included)
-  and `early_stopped` in the JSON report, the JUnit `user_properties` and the HTML report,
-  which shows "stopped after 7 of 20"; the JSON `summary` carries the totals and
-  `early_stopped`, and `defaults` carries `early_stop`. A stopped scenario's rate is a
-  bound, not an estimate; the gate verdict is unaffected.
-- `juried compare` refuses a scenario that stopped early in either report, with a message
-  naming it, unless `--allow-early-stopped` is passed, and prints a note when a scenario's
-  attempts made differ by more than a factor of two between the reports. The comparison
-  JSON gains `early_stopped` and `notes`.
-- `juried run --dry-run` and `juried estimate` add an `early stop` line: the expected
-  attempts, requests, calls and cost under early stopping, from an exact dynamic programme
-  over the (passes, fails) states using each scenario's pass rate in the last report;
-  scenarios without one are planned in full. `--no-early-stop` plans the full sample.
-- The label queue marks responses from a scenario that stopped early, in the terminal and
-  on the HTML page, since the `sampled` share of such a scenario leans towards the verdict
-  that decided it.
-
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-09-17
 
 ### Breaking changes
 
@@ -103,6 +75,24 @@ change between minor versions; every such change is listed under "Breaking chang
 - `[run] gate_on = "corrected"` gates on the corrected interval's lower bound against the
   rate `misses` implies, and the header says `gate on judge-corrected rate`. The default
   stays `"observed"` in 0.3 so nothing changes silently; the release after 0.3 flips it.
+- Sequential stopping. A scenario ends as soon as its gate is decided: lost once the
+  failed attempts exceed `misses`, won once the passes reach `runs - misses`. `[run]
+  early_stop` (default true), `JURIED_RUN_EARLY_STOP` and `juried run --no-early-stop`
+  control it; `gate_on = "corrected"` forces full sampling. Every scenario records
+  `attempts_planned`, `attempts_made` and `early_stopped` in the JSON report, the JUnit
+  `user_properties` and the HTML report. A stopped scenario's rate is a bound, not an
+  estimate; the gate verdict is unaffected.
+- `juried compare` refuses a scenario that stopped early in either report, with a message
+  naming it, unless `--allow-early-stopped` is passed, and prints a note when a scenario's
+  attempts made differ by more than a factor of two between the reports. The comparison
+  JSON gains `early_stopped` and `notes`.
+- `juried run --dry-run` and `juried estimate` add an `early stop` line: the expected
+  attempts, requests, calls and cost under early stopping, from an exact dynamic programme
+  over the (passes, fails) states using each scenario's pass rate in the last report;
+  scenarios without one are planned in full. `--no-early-stop` plans the full sample.
+- The label queue marks responses from a scenario that stopped early, in the terminal and
+  on the HTML page, since the `sampled` share of such a scenario leans towards the verdict
+  that decided it.
 - The calibration report's `judge` entry records `temperature` and `prompt_version`, so a
   report can be matched to the judge it measured.
 - `juried label` grows the calibration set from real output. After every run the responses
@@ -321,6 +311,7 @@ change between minor versions; every such change is listed under "Breaking chang
 - The README's claim that nothing but keys is ever read from disk (#24).
 - Concurrency tests no longer assert wall clock time, which failed on slow CI runners (#29).
 
-[Unreleased]: https://github.com/jch1887/juried/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/jch1887/juried/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jch1887/juried/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jch1887/juried/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jch1887/juried/compare/v0.1.1...v0.2.0

@@ -45,6 +45,9 @@ a self hosted runner with Ollama and the model pulled exercises it. It uploads t
 artifact on every run, pass or fail, so a green run can be inspected for which providers
 actually ran. Run it before a release and after any change to a provider module.
 
+The release steps themselves, from `make check` on `main` to the PyPI check, are in
+[docs/releasing.md](docs/releasing.md).
+
 ## Layout
 
 - `src/juried/config.py`, `criteria.py`, `scenarios.py`: models and file parsing.

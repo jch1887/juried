@@ -47,9 +47,20 @@ juried: dry run, nothing is sent
 target: 180 requests (one per turn and final message per attempt), estimated $0.17 at 400 input + 150 output tokens per call (assumed) and configured prices
 judge: 160 calls (160 attempts) to claude-sonnet-5, estimated $0.37 at 400 input + 150 output tokens per call (assumed) and list prices of 2026-09
 estimated run cost: $0.54 (judge $0.37 + target $0.17)
+early stop: expected about 122 of 160 attempts (137 target requests, 122 judge calls) from the last report's pass rates for 16 of 16 scenarios; expected run cost $0.41 (judge $0.28 + target $0.13)
 note: assumed token counts are a placeholder; a run reports the real figures and the next dry run uses its averages
 ```
 
 Until a report exists the dry run assumes 400 input and 150 output tokens per call on each
 side and says so; once `reports/juried-report.json` exists it uses that run's averages
 instead.
+
+The plan prices every attempt; the `early stop` line is what early stopping is expected to
+leave of it. For each scenario the last report's pass rate feeds an exact dynamic
+programme over the (passes, fails) states a scenario can be in before its gate is
+decided, which gives the expected attempts; a scenario the last report does not know is
+planned in full, and without a report the line says the saving is unknown. The figure is a
+floor, since attempts in flight when the gate is decided still finish, and it is small for
+a healthy suite: at 20 runs and 1 miss a scenario that passes 95% of the time is expected
+to make about 18 attempts, while one that fails half the time is decided in about four.
+`juried run --dry-run --no-early-stop` plans the full sample only.

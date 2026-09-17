@@ -108,11 +108,12 @@ def make_runner(
     votes: int = 1,
     judge_concurrency: int = 4,
     provider: Provider | None = None,
+    run_extra: str = "",
 ) -> Runner:
     config = parse_config(
         f'[target]\nurl = "http://unused/"\n[run]\nruns = {runs}\nconcurrency = {concurrency}\n'
         f'cache_dir = "{tmp_path / ".juried"}"\n'
-        f"cache_responses = {'true' if cache_responses else 'false'}\n"
+        f"cache_responses = {'true' if cache_responses else 'false'}\n{run_extra}"
         f'[judge]\nprovider = "stub"\nvotes = {votes}\nconcurrency = {judge_concurrency}\n',
         tmp_path,
         environ={},
@@ -785,3 +786,101 @@ def test_result_dict_shape(tmp_path: Path) -> None:
     assert data["gate_passed"] is True
     assert data["attempts"][0]["verdict"]["passed"] is True
     assert isinstance(httpx.AsyncClient, type)
+
+
+# Early stopping. The decision lands after an attempt is judged, and an attempt releases
+# its target slot before it is judged, so the next attempt in the queue has started by
+# then: with concurrency 1 the deciding attempt is followed by one more, which is in
+# flight when the gate is decided and therefore finishes and counts.
+def test_early_stop_lost_once_fails_exceed_misses(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Closed."])
+    result = make_runner(tmp_path, target, runs=20, concurrency=1).run(scenario(), CRITERION)
+    assert result.attempts_planned == 20
+    assert result.early_stopped
+    assert 2 <= result.attempts_made <= 3
+    assert target.calls == result.attempts_made
+    assert result.fails == result.attempts_made and result.judged == result.attempts_made
+    assert not result.gate_passed and result.status == "failed"
+    assert result.describe_stop() == f"stopped after {result.attempts_made} of 20"
+    data = result.to_dict()
+    assert data["early_stopped"] is True
+    assert data["attempts_planned"] == 20 and data["attempts_made"] == result.attempts_made
+    assert data["runs"] == result.attempts_made and data["required_passes"] == 19
+
+
+def test_early_stop_won_once_passes_reach_the_gate(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am to 5pm."])
+    runner = make_runner(tmp_path, target, runs=20, concurrency=1)
+    result = runner.run(scenario(misses=10), CRITERION)
+    assert result.gate_passed and result.early_stopped
+    assert 10 <= result.attempts_made <= 11
+    assert result.passes == result.attempts_made
+    # The saving is asymmetric: at the default one miss a passing scenario has to collect
+    # 19 passes before it is decided, so it saves at most one attempt.
+    full = make_runner(tmp_path, ScriptedTarget(["Open 9am to 5pm."]), runs=20, concurrency=1)
+    green = full.run(scenario(), CRITERION)
+    assert green.gate_passed and green.attempts_made >= 19
+    assert green.early_stopped == (green.attempts_made < 20)
+
+
+class StaggeredTarget(ScriptedTarget):
+    """The third and fourth requests take longer, so they are in flight when the first
+    two have decided the gate."""
+
+    async def send(self, message: str, history: Sequence[Turn]) -> TargetResponse:
+        index = self.calls
+        response = await super().send(message, history)
+        if index in (2, 3):
+            await asyncio.sleep(0.1)
+        return response
+
+
+def test_attempts_in_flight_when_the_gate_is_decided_still_count(tmp_path: Path) -> None:
+    target = StaggeredTarget(["Closed."])
+    result = make_runner(tmp_path, target, runs=20, concurrency=4).run(scenario(), CRITERION)
+    assert result.early_stopped
+    made = {run.attempt for run in result.runs}
+    assert {1, 2, 3, 4} <= made
+    assert len(made) < 20
+    assert all(run.response == "Closed." and run.verdict is not None for run in result.runs)
+    assert target.calls == result.attempts_made
+
+
+def test_early_stop_with_votes(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Open 9am to 5pm."])
+    runner = make_runner(tmp_path, target, runs=10, concurrency=1, votes=3)
+    result = runner.run(scenario(misses=8), CRITERION)
+    assert result.gate_passed and result.early_stopped
+    assert 2 <= result.attempts_made <= 3
+    assert all(len(run.votes) == 3 for run in result.runs)
+
+
+def test_early_stop_can_be_switched_off(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Closed."])
+    runner = make_runner(tmp_path, target, runs=20, concurrency=1, run_extra="early_stop = false\n")
+    result = runner.run(scenario(), CRITERION)
+    assert not result.early_stopped
+    assert result.attempts_made == 20 and target.calls == 20
+
+
+def test_gate_on_corrected_forces_full_sampling(tmp_path: Path) -> None:
+    target = ScriptedTarget(["Closed."])
+    runner = make_runner(
+        tmp_path, target, runs=20, concurrency=1, run_extra='gate_on = "corrected"\n'
+    )
+    assert not runner.config.run.early_stop_applies
+    assert runner.config.run.describe_early_stop() == (
+        "early stop off (gate_on = corrected needs full sampling)"
+    )
+    result = runner.run(scenario(), CRITERION)
+    assert not result.early_stopped and result.attempts_made == 20
+
+
+def test_transport_errors_count_as_attempts_made_but_decide_nothing(tmp_path: Path) -> None:
+    target = ScriptedTarget([TransportFailure("boom", 500), "Closed."])
+    result = make_runner(tmp_path, target, runs=20, concurrency=1).run(scenario(), CRITERION)
+    assert result.early_stopped
+    assert result.transport_errors >= 1
+    assert result.attempts_made == result.judged + result.transport_errors
+    assert result.fails == 2
+    assert result.status == "incomplete"

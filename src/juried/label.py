@@ -116,7 +116,6 @@ def build_queue(
     run_id: str,
     sample_rate: float = DEFAULT_SAMPLE_RATE,
     rng: random.Random | None = None,
-    early_stopped: bool = False,
 ) -> list[QueueEntry]:
     rng = rng or random.Random(run_id)
     entries: dict[str, QueueEntry] = {}
@@ -160,7 +159,7 @@ def build_queue(
                 sorted(set(reasons), key=REASON_ORDER.index),
                 [outcome.to_dict() for outcome in record.checks],
                 record.attempt,
-                early_stopped,
+                result.early_stopped,
             )
     return list(reversed(entries.values()))
 
@@ -231,7 +230,7 @@ def append_case(calibration_dir: Path, entry: QueueEntry, verdict: str, note: st
 def describe_entry(entry: QueueEntry, index: int, total: int) -> str:
     lines = [
         f"[{index}/{total}] {entry.criterion}: {entry.name}   why: {', '.join(entry.reasons)}"
-        + ("   (early stopped run)" if entry.early_stopped else "")
+        + ("   (scenario stopped early)" if entry.early_stopped else "")
     ]
     lines.extend(f"  {turn['role']}: {turn['content']}" for turn in entry.history)
     lines.extend(f"  {turn['role']} (live): {turn['content']}" for turn in entry.transcript)
@@ -321,7 +320,9 @@ def render_html(entries: Sequence[QueueEntry]) -> str:
             f'<tr id="case-{entry.id}" data-id="{entry.id}">'
             f"<td>{html.escape(entry.id)}</td>"
             f"<td>{html.escape(entry.criterion)}<br><small>{html.escape(entry.name)}</small>"
-            f"<br><small>{html.escape(', '.join(entry.reasons))}</small></td>"
+            f"<br><small>{html.escape(', '.join(entry.reasons))}</small>"
+            + ("<br><small>scenario stopped early</small>" if entry.early_stopped else "")
+            + "</td>"
             f"<td>{conversation}<p><b>user:</b> {html.escape(entry.message)}</p></td>"
             f"<td>{html.escape(entry.expected)}</td>"
             f"<td>{html.escape(entry.response)}"

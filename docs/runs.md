@@ -20,6 +20,38 @@ drop in quality. A misconfigured `response_path` or a header that names an unset
 environment variable stops the run with one clear message instead of a traceback.
 Every verdict is appended to `.juried/verdicts.jsonl` with the judge model and timestamp.
 
+## Early stopping
+
+A scenario stops as soon as its gate is decided. It is lost once the failed attempts
+exceed `misses`, and won once the passes reach the count the gate needs, `runs - misses`;
+at that point the attempts not yet sent are skipped, whatever is in flight finishes and
+counts, and the scenario is reported as `stopped after 7 of 20`. The saving is
+asymmetric. A passing scenario saves at most `misses` attempts, because it has to collect
+`runs - misses` passes before it is decided, so at the default 20 runs and 1 miss a green
+suite saves one attempt per scenario. A failing scenario can stop at attempt `misses + 1`,
+so a bad deploy is caught after two attempts rather than twenty. The value is fast failure
+on a bad deploy, not a cheaper green run. With concurrency above one a few more attempts
+than the minimum are made, since the attempts already in flight when the decision lands
+are allowed to finish; none is ever cancelled mid request.
+
+Every scenario records `attempts_planned` and `attempts_made`, the latter counting every
+attempt whose request completed, transport errors included, and `early_stopped`. The
+pass rate, interval and corrected rate are computed over the judged attempts as before.
+The header says `early stop on (a scenario ends once its gate is decided)` and the
+summary says `early stop saved 14 of 400 planned attempts`; the report shows
+"stopped after 7 of 20" against each stopped scenario in the HTML, the JSON and the
+JUnit `user_properties`.
+
+A stopped scenario's gate verdict is sound, but its rate is not an estimate. A lost
+scenario stops at the moment its failures cross the line, so its rate is a bound on the
+feature's quality, biased downwards; a won one stops the moment its passes suffice, biased
+upwards. Anything that reads the rate as a measurement should use full sampling:
+`juried compare` refuses stopped scenarios unless told otherwise, the calibration set
+should be built from full runs, and `gate_on = "corrected"` turns early stopping off
+because its interval needs every attempt, which the header says
+(`early stop off (gate_on = corrected needs full sampling)`). Set `early_stop = false`
+under `[run]`, or pass `juried run --no-early-stop`, to run every planned attempt.
+
 ## Concurrency
 
 Scenarios are pytest items, which pytest runs one after another, but juried does not wait
@@ -31,7 +63,8 @@ scenarios at ten runs each is bounded by the two concurrency caps, not by fifty 
 event loops. `run.concurrency` caps requests in flight to your endpoint and
 `judge.concurrency` caps requests to the judge, so a slow judge does not hold up sampling
 and a fragile staging endpoint can be throttled without starving the judge. Stopping with
-`-x` cancels the scenarios that were still in flight. `.juried/verdicts.jsonl` is appended
+`-x` cancels the scenarios that were still in flight, and a scenario whose gate is decided
+skips the attempts it had not started (see "Early stopping"). `.juried/verdicts.jsonl` is appended
 under a file lock, so `pytest-xdist` workers do not interleave lines.
 
 Under `pytest-xdist` every worker is its own process with its own event loop, so the caps

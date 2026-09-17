@@ -123,6 +123,7 @@ def build_report(
             "required_passes": gate.passes_needed,
             "threshold": gate.equivalent_threshold,
             "gate_on": config.run.gate_on,
+            "early_stop": config.run.early_stop_applies,
         },
         "calibration": None if calibration is None else calibration.to_dict(),
         "summary": {
@@ -135,6 +136,10 @@ def build_report(
             "responses_from_cache": sum(r.responses_from_cache for r in results),
             "split_verdicts": sum(r.split_verdicts for r in results),
             "judge_errors": sum(r.judge_errors for r in results),
+            "attempts_planned": sum(r.attempts_planned for r in results),
+            "attempts_made": sum(r.attempts_made for r in results),
+            "scenarios_stopped": sum(1 for r in results if r.early_stopped),
+            "early_stopped": any(r.early_stopped for r in results),
             "usage": usage_entries(
                 sum((r.usage for r in results), Usage()),
                 sum((r.target_usage for r in results), TargetUsage()),

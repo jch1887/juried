@@ -242,6 +242,113 @@ scenarios:
     assert '<p><span class="label">checks</span>not_contains 5pm; max_chars 500; regex' in html
 
 
+def test_early_stop_is_reported_everywhere(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    write_project(pytester, fake_bot_url, runs=20)
+    result = pytester.runpytest("-v", "--junitxml=out.xml")
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "juried: early stop on (a scenario ends once its gate is decided)",
+            "*FAILED 0/* (needs 20, interval *stopped after * of 20*",
+            "*PASSED 20/20 (needs 20, interval *",
+        ]
+    )
+    result.stdout.re_match_lines([r"early stop saved \d+ of 40 planned attempts"])
+    result.stdout.fnmatch_lines(
+        ["  attempts: stopped after * of 20 planned (the gate was decided, so the attempts *"]
+    )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["early_stop"] is True
+    summary = report["summary"]
+    assert summary["early_stopped"] is True and summary["scenarios_stopped"] == 1
+    assert summary["attempts_planned"] == 40
+    assert summary["attempts_made"] < 40
+    scenarios = {s["id"]: s for c in report["criteria"] for s in c["scenarios"]}
+    stopped = scenarios["refund-policy-asks-nonsense"]
+    assert stopped["early_stopped"] is True
+    assert stopped["attempts_planned"] == 20
+    assert 1 <= stopped["attempts_made"] < 20
+    assert stopped["runs"] == stopped["attempts_made"] == len(stopped["attempts"])
+    assert stopped["required_passes"] == 20
+    full = scenarios["opening-hours-asks-hours"]
+    assert full["early_stopped"] is False and full["attempts_made"] == 20
+    html = (pytester.path / "reports" / "juried-report.html").read_text()
+    assert f"stopped after {stopped['attempts_made']} of 20" in html
+    assert "Early stop on: a scenario ends once its gate is decided, which saved" in html
+    assert "a bound rather than an estimate" in html
+    assert "20 / 20<br>" in html
+    root = ET.parse(pytester.path / "out.xml").getroot()
+    suite = root if root.tag == "testsuite" else root.find("testsuite")
+    assert suite is not None
+    cases = {case.get("name"): case for case in suite.findall("testcase")}
+    properties = {
+        p.get("name"): p.get("value") for p in cases["refund-policy-asks-nonsense"].iter("property")
+    }
+    assert properties["early_stopped"] == "true"
+    assert properties["attempts_planned"] == "20"
+    assert properties["attempts_made"] == str(stopped["attempts_made"])
+    assert properties["runs"] == str(stopped["attempts_made"])
+    full_properties = {
+        p.get("name"): p.get("value") for p in cases["opening-hours-asks-hours"].iter("property")
+    }
+    assert full_properties["early_stopped"] == "false"
+    assert full_properties["attempts_made"] == "20"
+
+
+def test_early_stop_can_be_switched_off_by_flag_or_config(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url, runs=8)
+    result = pytester.runpytest("-v", "--juried-no-early-stop")
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(["juried: early stop off (early_stop = false)"])
+    assert "early stop saved" not in result.stdout.str()
+    assert "stopped after" not in result.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["early_stop"] is False
+    assert report["summary"]["attempts_made"] == 16
+    assert report["summary"]["early_stopped"] is False
+    assert "Early stop off: every planned attempt was made." in (
+        (pytester.path / "reports" / "juried-report.html").read_text()
+    )
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace("misses = 0", "misses = 0\nearly_stop = false")
+    )
+    again = pytester.runpytest("-v")
+    again.assert_outcomes(passed=1, failed=1)
+    again.stdout.fnmatch_lines(["juried: early stop off (early_stop = false)"])
+
+
+def test_gate_on_corrected_switches_early_stop_off(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace("misses = 0", 'misses = 0\ngate_on = "corrected"')
+    )
+    write_calibration(pytester, CALIBRATION_REPORT_STUB)
+    result = pytester.runpytest("-v", "-k", "hours")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        ["juried: early stop off (gate_on = corrected needs full sampling)"]
+    )
+    assert "early stop saved" not in result.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["early_stop"] is False
+
+
+def test_early_stop_and_x_cancellation(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+    # The failing scenario is decided after its first attempt and -x then cancels the
+    # passing one, which is still in flight.
+    write_project(pytester, fake_bot_url, runs=50)
+    result = pytester.runpytest("-x", "-v")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*stopped after * of 50*", "*stopping after 1 failures*"])
+    assert "Task was destroyed" not in result.stderr.str()
+
+
 def test_stops_on_first_failure(pytester: pytest.Pytester, fake_bot_url: str) -> None:
     write_project(pytester, fake_bot_url)
     result = pytester.runpytest("-x")

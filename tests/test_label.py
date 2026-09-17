@@ -15,6 +15,7 @@ from juried.label import (
     HEDGES,
     attempt_reasons,
     build_queue,
+    describe_entry,
     hedged,
     import_marks,
     merge_queue,
@@ -297,3 +298,19 @@ def test_label_command_end_to_end(
     out = capsys.readouterr().out
     assert "labelled 1, skipped 0, 0 left in the queue" in out
     assert "run 'juried calibrate'" in out
+
+
+def test_entries_carry_whether_their_scenario_stopped_early() -> None:
+    stopped = result([record(1, True, reason="probably fine"), record(2, True)], misses=0)
+    stopped.early_stopped = True
+    full = result([record(3, True, reason="seems ok")], misses=0, name="Asks again")
+    queue = build_queue([stopped, full], "run-3", sample_rate=0.0)
+    flags = {entry.scenario: entry.early_stopped for entry in queue}
+    assert flags == {"hours-asks-hours": True, "hours-asks-again": False}
+    marked = next(entry for entry in queue if entry.early_stopped)
+    assert "(scenario stopped early)" in describe_entry(marked, 1, 2)
+    unmarked = next(entry for entry in queue if not entry.early_stopped)
+    assert "stopped early" not in describe_entry(unmarked, 2, 2)
+    page = render_html(queue)
+    assert page.count("scenario stopped early") == 1
+    assert read_queue.__name__  # the flag round trips through the queue file as before

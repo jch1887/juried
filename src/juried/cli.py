@@ -25,8 +25,11 @@ from juried.compare import (
     check_same_schema,
     compare_reports,
     comparison_dict,
+    early_stopped_ids,
+    imbalance_notes,
     load_report,
     power_of,
+    scenarios_by_id,
 )
 from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError
@@ -105,6 +108,10 @@ concurrency = 4
 # Gate on the judge-corrected pass rate (needs a calibration report) rather than the
 # observed passes. The default becomes "corrected" in the release after 0.3.
 # gate_on = "observed"
+# A scenario stops once its gate is decided (lost when the failures exceed misses, won
+# when the passes reach what the gate needs); false runs every attempt. Off under
+# gate_on = "corrected", which needs full sampling.
+# early_stop = true
 cache_dir = ".juried"
 # Verdicts are cached by content so an unchanged response is not judged twice. Responses
 # are sampled fresh on every run unless this is true, which replays saved responses and
@@ -261,6 +268,11 @@ def build_parser() -> argparse.ArgumentParser:
         "estimate", help="print what a run would send and cost, without sending anything"
     )
     estimate.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
+    estimate.add_argument(
+        "--no-early-stop",
+        action="store_true",
+        help="plan every attempt in full, as a run with --no-early-stop would make",
+    )
 
     compare = commands.add_parser(
         "compare", help="compare two JSON reports and flag scenarios that got worse"
@@ -290,6 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="deprecated alias for --min-effect, removed in 0.4",
     )
     compare.add_argument("--json", metavar="PATH", help="also write the comparison as JSON")
+    compare.add_argument(
+        "--allow-early-stopped",
+        action="store_true",
+        help="compare scenarios that stopped early, whose rates are bounds, not estimates",
+    )
 
     run = commands.add_parser("run", help="run scenarios with pytest and write the report")
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
@@ -307,6 +324,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-responses",
         action="store_true",
         help="replay responses from .juried/cache/responses instead of sampling the feature",
+    )
+    run.add_argument(
+        "--no-early-stop",
+        action="store_true",
+        help="run every planned attempt instead of stopping a scenario once its gate is decided",
     )
     run.add_argument(
         "--dry-run",
@@ -480,8 +502,12 @@ def command_label(explicit: str | None, html: bool, import_path: str | None) -> 
     return 0
 
 
-def command_estimate(explicit: str | None, extra: Sequence[str] = ()) -> int:
+def command_estimate(
+    explicit: str | None, extra: Sequence[str] = (), no_early_stop: bool = False
+) -> int:
     _, config = locate_config(explicit)
+    if no_early_stop:
+        config.run.early_stop = False
     known = {criterion.id for criterion in criteria_for(config)}
     scenarios = load_scenarios(config.scenarios_path)
     unknown = sorted({s.criterion for s in scenarios} - known)
@@ -522,6 +548,7 @@ def command_compare(
     min_effect: float | None,
     tolerance: float | None,
     json_path: str | None,
+    allow_early_stopped: bool = False,
 ) -> int:
     if not 0.0 < alpha < 1.0:
         raise CompareError(f"--alpha must be between 0 and 1 exclusive, not {alpha}")
@@ -531,7 +558,7 @@ def command_compare(
     old_path, new_path = Path(old), Path(new)
     old_report, new_report = load_report(old_path), load_report(new_path)
     check_same_schema(old_path, old_report, new_path, new_report)
-    changes = compare_reports(old_report, new_report, alpha, effect)
+    changes = compare_reports(old_report, new_report, alpha, effect, allow_early_stopped)
     regressions = [change for change in changes if change.regression]
     noise = [change for change in changes if change.kind in NOISE]
     improvements = [change for change in changes if change.kind in ("gate regained", "improved")]
@@ -556,10 +583,21 @@ def command_compare(
     power = power_of(changes, alpha)
     if power is not None:
         print(power.describe(alpha))
+    stopped_old, stopped_new = early_stopped_ids(
+        scenarios_by_id(old_report), scenarios_by_id(new_report)
+    )
+    if stopped_old or stopped_new:
+        print(
+            f"warning: {len(stopped_old)} scenario(s) in the old report and {len(stopped_new)} "
+            "in the new stopped early; their rates are bounds, not estimates, so treat any "
+            "finding on them as a hint"
+        )
+    for note in imbalance_notes(changes):
+        print(note)
     if json_path:
         path = Path(json_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = comparison_dict(old_path, new_path, changes, alpha, effect)
+        data = comparison_dict(old_path, new_path, changes, alpha, effect, old_report, new_report)
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"comparison: {path}")
     return 1 if regressions else 0
@@ -572,10 +610,13 @@ def command_run(
     threshold: float | None,
     no_cache: bool,
     cache_responses: bool,
+    no_early_stop: bool,
     pytest_args: Sequence[str],
 ) -> int:
     path, config = locate_config(explicit)
     args = [f"--juried-config={path}", f"--rootdir={path.parent}", "-v"]
+    if no_early_stop:
+        args.append("--juried-no-early-stop")
     if runs is not None:
         args.append(f"--juried-runs={runs}")
     if misses is not None:
@@ -609,12 +650,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "calibrate":
             return command_calibrate(args.config, args.min_accuracy)
         if args.command == "estimate":
-            return command_estimate(args.config, extra)
+            return command_estimate(args.config, extra, args.no_early_stop)
         if args.command == "label":
             return command_label(args.config, args.html, args.import_path)
         if args.command == "compare":
             return command_compare(
-                args.old, args.new, args.alpha, args.min_effect, args.tolerance, args.json
+                args.old,
+                args.new,
+                args.alpha,
+                args.min_effect,
+                args.tolerance,
+                args.json,
+                args.allow_early_stopped,
             )
         return command_run(
             args.config,
@@ -623,6 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.threshold,
             args.no_cache,
             args.cache_responses,
+            args.no_early_stop,
             extra,
         )
     except (

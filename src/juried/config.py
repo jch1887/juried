@@ -121,9 +121,26 @@ class RunConfig(StrictModel):
     # "corrected" gates on the judge-corrected rate's interval instead of the observed
     # passes. The default flips to "corrected" in the release after 0.3.
     gate_on: Literal["observed", "corrected"] = "observed"
+    # Stop a scenario once its gate is decided: lost when the failed attempts exceed
+    # `misses`, won when the passes reach the count the gate needs. Attempts that are still
+    # in flight finish and count; the rest are never sent.
+    early_stop: bool = True
     cache_dir: Path = Path(".juried")
     cache_responses: bool = False
     report_dir: Path = Path("reports")
+
+    # The corrected rate needs every attempt, since its interval is a bootstrap over the
+    # judged attempts, so gating on it turns early stopping off whatever the key says.
+    @property
+    def early_stop_applies(self) -> bool:
+        return self.early_stop and self.gate_on != "corrected"
+
+    def describe_early_stop(self) -> str:
+        if self.early_stop_applies:
+            return "early stop on (a scenario ends once its gate is decided)"
+        if self.gate_on == "corrected":
+            return "early stop off (gate_on = corrected needs full sampling)"
+        return "early stop off (early_stop = false)"
 
     @model_validator(mode="after")
     def gate_is_consistent(self) -> RunConfig:

@@ -291,3 +291,53 @@ def test_tolerance_is_a_deprecated_alias_for_min_effect(
     assert main(["compare", str(old), str(new), "--alpha", "1"]) == 2
     assert "--alpha must be between 0 and 1" in capsys.readouterr().err
     assert main(["compare", str(old), str(new), "--alpha", "0.001"]) == 0
+
+
+def test_early_stopped_scenarios_are_refused_unless_allowed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stopped = {**entry("quick", 0, 2, misses=1), "early_stopped": True, "attempts_made": 2}
+    stopped["attempts_planned"] = 20
+    old_report = report(entry("quick", 20, 20), entry("same", 20, 20))
+    new_report = report(stopped, entry("same", 20, 20))
+    with pytest.raises(CompareError) as refused:
+        compare_reports(old_report, new_report)
+    assert "stopped early (in the new report: quick)" in str(refused.value)
+    assert "--allow-early-stopped" in str(refused.value)
+    changes = compare_reports(old_report, new_report, allow_early_stopped=True)
+    assert [c.kind for c in changes] == ["gate lost", "unchanged"]
+    facts = summary(changes[0].new)
+    assert facts is not None and facts["passes_needed"] == 19
+    old_path, new_path = tmp_path / "old.json", tmp_path / "new.json"
+    old_path.write_text(json.dumps(old_report))
+    new_path.write_text(json.dumps(new_report))
+    assert main(["compare", str(old_path), str(new_path)]) == 2
+    assert "cannot compare scenarios that stopped early" in capsys.readouterr().err
+    out_json = tmp_path / "compare.json"
+    assert (
+        main(
+            [
+                "compare",
+                str(old_path),
+                str(new_path),
+                "--allow-early-stopped",
+                "--json",
+                str(out_json),
+            ]
+        )
+        == 1
+    )
+    out = capsys.readouterr().out
+    assert "gate lost: quick" in out
+    assert "warning: 0 scenario(s) in the old report and 1 in the new stopped early" in out
+    assert (
+        "note: quick made 20 attempts in the old report and 2 in the new, more than a factor "
+        "of two apart" in out
+    )
+    data = json.loads(out_json.read_text())
+    assert data["early_stopped"] == {"old": [], "new": ["quick"]}
+    assert len(data["notes"]) == 1 and data["notes"][0].startswith("note: quick made 20")
+    # Both sides fully sampled: no warning, no note, even at different run counts under 2x.
+    assert main(["compare", str(old_path), str(old_path)]) == 0
+    out = capsys.readouterr().out
+    assert "warning" not in out and "factor of two" not in out

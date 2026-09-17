@@ -61,7 +61,11 @@ in the usual shape with a `source` naming the run; `juried calibrate` picks that
 directory up and says how many cases came from hand labelling and how many from runs.
 `juried label --html` writes `reports/label-queue.html`, a page with no scripts, and a
 `label-queue.csv` beside it, for a QA lead to mark up away from the terminal, and
-`juried label --import` reads either back. The loop is: run, label what the run flags,
+`juried label --import` reads either back. A response from a scenario that stopped early
+is marked as such in the queue, the terminal and the page; the `sampled` share of such a
+scenario is drawn from a run cut short at the moment its gate was decided, so it leans
+towards whichever verdict decided it. Build the calibration set from full runs where you
+can (`juried run --no-early-stop`). The loop is: run, label what the run flags,
 calibrate, and the corrected figure tightens as the judge's error rates are measured on
 more of your own responses. The run's summary says how many responses are waiting and how
 big the calibration set is per criterion.

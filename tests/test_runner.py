@@ -559,8 +559,11 @@ def test_transport_errors_are_not_cached(tmp_path: Path) -> None:
 
 
 def test_http_target_end_to_end(tmp_path: Path, fake_bot_url: str) -> None:
+    # The fake bot drops the 14 day detail on every third refund reply, counted across the
+    # whole session, so with one miss tolerated the scenario could be lost early and make
+    # fewer than six attempts. This test is about the target, not the gate.
     config = parse_config(
-        f'[target]\nurl = "{fake_bot_url}/chat"\n[run]\nruns = 6\n'
+        f'[target]\nurl = "{fake_bot_url}/chat"\n[run]\nruns = 6\nearly_stop = false\n'
         f'cache_dir = "{tmp_path / ".juried"}"\n[judge]\nprovider = "stub"\n',
         tmp_path,
         environ={},

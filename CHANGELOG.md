@@ -193,6 +193,12 @@ change between minor versions; every such change is listed under "Breaking chang
   the roadmap says what is out of scope and where to go for it. The PyPI classifiers gain
   `Intended Audience :: Information Technology` for the QA teams the tagline names.
 
+### Fixed
+
+- The HTTP target end to end test could stop early and fail on a count of attempts, since
+  the fake bot's every-third failure is counted across the whole session; it now runs with
+  early stopping off.
+
 ## [0.2.1] - 2026-09-13
 
 ### Added

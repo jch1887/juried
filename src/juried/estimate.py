@@ -41,6 +41,20 @@ ASSUMED = TokenGuess(ASSUMED_INPUT_TOKENS, ASSUMED_OUTPUT_TOKENS, "assumed")
 
 
 @dataclass(frozen=True)
+class Expected:
+    """What early stopping is expected to leave of the plan: attempts, requests and calls
+    from a dynamic programme over each scenario's pass rate in the previous report."""
+
+    attempts: float
+    target_requests: float
+    judge_calls: float
+    judge_cost: float | None
+    target_cost: float | None
+    # Scenarios whose pass rate the previous report supplied; the rest are planned in full.
+    with_rates: int
+
+
+@dataclass(frozen=True)
 class Plan:
     scenarios: int
     attempts: int
@@ -55,12 +69,49 @@ class Plan:
     target_tokens: TokenGuess
     target_cost_per_request: float | None
     target_cost: float | None
+    early_stop: bool = False
+    expected: Expected | None = None
 
     @property
     def total(self) -> float | None:
         if self.judge_cost is None or self.target_cost is None:
             return None
         return self.judge_cost + self.target_cost
+
+
+# The attempts a scenario is expected to make before its gate is decided, when each attempt
+# passes with probability `pass_rate`. A forward pass over the undecided (passes, fails)
+# states: every unit of probability mass in an undecided state makes one more attempt, then
+# moves to (passes + 1, fails) or (passes, fails + 1), and mass that reaches the count the
+# gate needs, or one more failure than it tolerates, is decided and dropped. Attempts in
+# flight when the decision lands still finish, so a real run makes a few more than this.
+def expected_attempts(runs: int, misses: int, pass_rate: float) -> float:
+    needed = runs - misses
+    p = min(max(pass_rate, 0.0), 1.0)
+    mass: dict[tuple[int, int], float] = {(0, 0): 1.0}
+    expected = 0.0
+    for _ in range(runs):
+        following: dict[tuple[int, int], float] = {}
+        for (passes, fails), probability in mass.items():
+            expected += probability
+            for state, chance in (((passes + 1, fails), p), ((passes, fails + 1), 1.0 - p)):
+                if chance == 0.0 or state[0] >= needed or state[1] > misses:
+                    continue
+                following[state] = following.get(state, 0.0) + probability * chance
+        mass = following
+        if not mass:
+            break
+    return expected
+
+
+def previous_pass_rates(previous: dict[str, Any] | None) -> dict[str, float]:
+    rates: dict[str, float] = {}
+    for criterion in (previous or {}).get("criteria", []):
+        for entry in criterion.get("scenarios", []) if isinstance(criterion, dict) else []:
+            judged, rate = entry.get("judged"), entry.get("pass_rate")
+            if isinstance(judged, int) and judged > 0 and isinstance(rate, int | float):
+                rates[str(entry.get("id"))] = float(rate)
+    return rates
 
 
 def load_previous_report(path: Path) -> dict[str, Any] | None:
@@ -91,11 +142,23 @@ def plan_run(
     attempts = 0
     target_requests = 0
     with_turns = 0
+    rates = previous_pass_rates(previous)
+    expected_attempts_total = 0.0
+    expected_requests = 0.0
+    with_rates = 0
     for scenario in scenarios:
-        runs = config.run.gate(scenario.runs, scenario.misses, scenario.threshold).runs
+        gate = config.run.gate(scenario.runs, scenario.misses, scenario.threshold)
+        runs = gate.runs
         attempts += runs
         target_requests += runs * (len(scenario.turns) + 1)
         with_turns += 1 if scenario.turns else 0
+        # Without a pass rate to go on, a scenario is planned in full.
+        expected = float(runs)
+        if scenario.id in rates:
+            expected = expected_attempts(runs, gate.misses, rates[scenario.id])
+            with_rates += 1
+        expected_attempts_total += expected
+        expected_requests += expected * (len(scenario.turns) + 1)
     votes = config.judge.votes
     judge_calls = attempts * votes
 
@@ -125,6 +188,19 @@ def plan_run(
         target.prices,
         target.cost_per_request,
     )
+    expected_plan = None
+    if config.run.early_stop_applies:
+        # Both sides are priced per call, so the expected cost is the planned cost scaled
+        # by the expected share of calls.
+        expected_calls = expected_attempts_total * votes
+        expected_plan = Expected(
+            expected_attempts_total,
+            expected_requests,
+            expected_calls,
+            scaled(judge_cost, expected_calls, judge_calls),
+            scaled(target_cost, expected_requests, target_requests),
+            with_rates,
+        )
     return Plan(
         len(scenarios),
         attempts,
@@ -139,7 +215,40 @@ def plan_run(
         target_tokens,
         target.cost_per_request,
         target_cost,
+        config.run.early_stop_applies,
+        expected_plan,
     )
+
+
+def scaled(cost: float | None, expected: float, planned: int) -> float | None:
+    if cost is None:
+        return None
+    return cost * expected / planned if planned else 0.0
+
+
+def describe_expected(plan: Plan, config: Config) -> str:
+    if not plan.early_stop or plan.expected is None:
+        return f"{config.run.describe_early_stop()}; every attempt above is planned"
+    expected = plan.expected
+    if not expected.with_rates:
+        return (
+            "early stop on, but no previous report supplies pass rates, so the expected "
+            "saving is unknown and the figures above are the full plan"
+        )
+    text = (
+        f"early stop: expected about {round(expected.attempts)} of {plan.attempts} attempts "
+        f"({round(expected.target_requests)} target requests, {round(expected.judge_calls)} "
+        f"judge calls) from the last report's pass rates for {expected.with_rates} of "
+        f"{plan.scenarios} scenarios"
+    )
+    if expected.judge_cost is not None and expected.target_cost is not None:
+        text += (
+            f"; expected run cost {format_usd(expected.judge_cost + expected.target_cost)} "
+            f"(judge {format_usd(expected.judge_cost)} + target {format_usd(expected.target_cost)})"
+        )
+    elif expected.judge_cost is not None:
+        text += f"; expected judge cost {format_usd(expected.judge_cost)}, target unknown"
+    return text
 
 
 def describe_plan(plan: Plan, config: Config) -> list[str]:
@@ -179,6 +288,7 @@ def describe_plan(plan: Plan, config: Config) -> list[str]:
     lines.append(calls)
     run_cost = describe_run_cost(plan.judge_cost, plan.target_cost)
     lines.append(run_cost or "estimated run cost: unknown until both sides are priced")
+    lines.append(describe_expected(plan, config))
     if "assumed" in (plan.judge_tokens.source, plan.target_tokens.source):
         lines.append(
             "note: assumed token counts are a placeholder; a run reports the real figures and the "

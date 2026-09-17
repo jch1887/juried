@@ -22,6 +22,12 @@ change to any of them is a new major version:
   `transport_errors`.
 - The `JURIED_*` environment variables: `JURIED_<SECTION>_<KEY>` overrides for every config
   key, and `JURIED_LIVE`.
+- What a stopped scenario's figures mean. A scenario with `early_stopped` true ended once
+  its gate was decided, and its gate verdict is exactly what full sampling would have
+  given. Its pass rate and interval are a bound, not an estimate: a lost scenario stops at
+  the moment its failures cross the line, so the rate is biased downwards, and a won one
+  stops the moment its passes suffice, so it is biased upwards. `juried compare` and
+  calibration set building should use full sampling (`--no-early-stop`).
 
 Explicitly not covered, and free to change in any release: the judge and generation prompts
 (their version is recorded with every verdict so a change never reuses an old one), the HTML

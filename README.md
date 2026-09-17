@@ -132,6 +132,8 @@ line reason, using a fixed prompt and the configured temperature, if any. The sc
 when no more than `misses` of those attempts fail, so with the defaults, `runs = 20` and
 `misses = 1`, it needs 19 passes out of 20. Set `misses = 0` to require every attempt to
 pass, or raise `runs` and `misses` together to tolerate the same miss rate on more evidence.
+A scenario stops as soon as its gate is decided, so a bad deploy fails after `misses + 1`
+attempts rather than all of them; `--no-early-stop` runs every attempt.
 
 ```toml
 [run]

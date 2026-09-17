@@ -199,10 +199,26 @@ class ScenarioResult:
     runs: list[RunRecord] = field(default_factory=list)
     gate_on: str = "observed"
     corrected: Corrected | None = None
+    # True when the gate was decided before every planned attempt had started, so the
+    # attempts not yet sent were skipped. `runs` then holds only the attempts made.
+    early_stopped: bool = False
 
     @property
     def total(self) -> int:
         return len(self.runs)
+
+    @property
+    def attempts_planned(self) -> int:
+        return self.gate.runs
+
+    # Attempts whose request completed, transport errors included; skipped attempts were
+    # never sent and are not recorded.
+    @property
+    def attempts_made(self) -> int:
+        return len(self.runs)
+
+    def describe_stop(self) -> str:
+        return f"stopped after {self.attempts_made} of {self.attempts_planned}"
 
     @property
     def passes(self) -> int:
@@ -338,6 +354,9 @@ class ScenarioResult:
             "tags": list(self.scenario.tags),
             "source": str(self.scenario.source) if self.scenario.source else None,
             "runs": self.total,
+            "attempts_planned": self.attempts_planned,
+            "attempts_made": self.attempts_made,
+            "early_stopped": self.early_stopped,
             "judged": self.judged,
             "passes": self.passes,
             "transport_errors": self.transport_errors,
@@ -377,6 +396,34 @@ class ScenarioResult:
             },
             "attempts": [run.to_dict() for run in self.runs],
         }
+
+
+class AttemptSkipped(Exception):
+    """Raised inside an attempt that had not sent anything when the gate was decided."""
+
+
+class Stopper:
+    """Tallies a scenario's verdicts as they arrive and says when the gate is decided: lost
+    once the failed attempts exceed the misses tolerated, won once the passes reach the
+    count the gate needs. Errors decide nothing, since they make the scenario incomplete
+    whatever else happens, and are tallied separately."""
+
+    def __init__(self, gate: Gate, enabled: bool) -> None:
+        self.gate = gate
+        self.enabled = enabled
+        self.passes = 0
+        self.fails = 0
+        self.decided = False
+
+    def record(self, record: RunRecord) -> None:
+        if record.passed:
+            self.passes += 1
+        elif record.verdict is not None:
+            self.fails += 1
+        if self.enabled and (
+            self.fails > self.gate.misses or self.passes >= self.gate.passes_needed
+        ):
+            self.decided = True
 
 
 @dataclass(frozen=True)
@@ -444,18 +491,28 @@ class Runner:
     ) -> ScenarioResult:
         gate = self.gate_for(scenario)
         runs = gate.runs
+        stopper = Stopper(gate, self.config.run.early_stop_applies)
         try:
             # A task group cancels the remaining attempts when one raises, so a
             # configuration error stops the scenario instead of leaving tasks dangling.
             async with asyncio.TaskGroup() as group:
                 tasks = [
-                    group.create_task(self._attempt(resources, scenario, criterion, attempt))
+                    group.create_task(
+                        self._attempt(resources, scenario, criterion, attempt, stopper)
+                    )
                     for attempt in range(1, runs + 1)
                 ]
         except* (TargetConfigError, CheckError) as failures:
             raise failures.exceptions[0] from None
-        records = [task.result() for task in tasks]
-        result = ScenarioResult(scenario, criterion, gate, records, self.config.run.gate_on)
+        records = [record for task in tasks if (record := task.result()) is not None]
+        result = ScenarioResult(
+            scenario,
+            criterion,
+            gate,
+            records,
+            self.config.run.gate_on,
+            early_stopped=stopper.decided and len(records) < runs,
+        )
         if self.calibration is not None:
             result.corrected = correct(
                 result.passes,
@@ -466,12 +523,35 @@ class Runner:
             )
         return result
 
+    # Once the gate is decided, attempts that have not sent anything are skipped rather
+    # than cancelled: a task is never interrupted mid request, so whatever was in flight
+    # finishes and counts. Skipping happens where an attempt would start its first
+    # request, so it also covers attempts queued behind the concurrency cap.
     async def _attempt(
         self,
         resources: Resources,
         scenario: Scenario,
         criterion: Criterion,
         attempt: int,
+        stopper: Stopper | None = None,
+    ) -> RunRecord | None:
+        if stopper is not None and stopper.decided:
+            return None
+        try:
+            record = await self._run_attempt(resources, scenario, criterion, attempt, stopper)
+        except AttemptSkipped:
+            return None
+        if stopper is not None:
+            stopper.record(record)
+        return record
+
+    async def _run_attempt(
+        self,
+        resources: Resources,
+        scenario: Scenario,
+        criterion: Criterion,
+        attempt: int,
+        stopper: Stopper | None,
     ) -> RunRecord:
         record = RunRecord(attempt=attempt)
         history = [turn.model_dump() for turn in scenario.history]
@@ -481,7 +561,9 @@ class Runner:
         conversation: list[Turn] = list(scenario.history)
         steps = [*scenario.turns, scenario.message]
         for step, text in enumerate(steps):
-            reply = await self._send(resources, record, text, conversation, attempt, step, steps)
+            reply = await self._send(
+                resources, record, text, conversation, attempt, step, steps, stopper
+            )
             if reply is None:
                 record.elapsed_ms = (time.perf_counter() - started) * 1000
                 return record
@@ -548,7 +630,12 @@ class Runner:
         attempt: int,
         step: int,
         conversation_steps: Sequence[str] = (),
+        stopper: Stopper | None = None,
     ) -> str | None:
+        # An attempt starts with its first request; before that it can still be skipped.
+        starting = step == 0
+        if starting and stopper is not None and stopper.decided:
+            raise AttemptSkipped
         # Replaying responses defeats repeated sampling, so it is opt in and every
         # replayed attempt is flagged in the record, the terminal and the report.
         replay = self.config.run.cache_responses
@@ -566,6 +653,9 @@ class Runner:
             record.response_cached = True
             return str(cached["text"])
         async with resources.target_slots:
+            # The gate may have been decided while this attempt waited for a slot.
+            if starting and stopper is not None and stopper.decided:
+                raise AttemptSkipped
             started = time.perf_counter()
             try:
                 response = await target.send(text, conversation)

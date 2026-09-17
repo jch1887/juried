@@ -110,6 +110,10 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "responses_from_cache": 0,
         "split_verdicts": 0,
         "judge_errors": 0,
+        "attempts_planned": 6,
+        "attempts_made": 6,
+        "scenarios_stopped": 0,
+        "early_stopped": False,
         "usage": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -165,6 +169,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "required_passes": 19,
         "threshold": 0.7639,
         "gate_on": "observed",
+        "early_stop": True,
     }
     assert report["calibration"] is None
     assert scenario["corrected_rate"] is None and scenario["calibration_cases_used"] == 0
@@ -289,3 +294,37 @@ def test_optional_tiles_split_into_two_even_rows(tmp_path: Path) -> None:
     html = render_html(build_report(voting, [HOURS, REFUNDS], results()))
     assert "split verdicts" in html
     assert 'style="grid-template-columns: repeat(5, minmax(0, 1fr));"' in html
+
+
+def test_stopped_scenarios_are_marked_in_json_and_html(tmp_path: Path) -> None:
+    stopped = ScenarioResult(
+        results()[0].scenario,
+        HOURS,
+        Gate(20, 1),
+        [
+            RunRecord(1, "Closed.", verdict=verdict(False, "no hours")),
+            RunRecord(2, "Closed.", verdict=verdict(False, "no hours")),
+            RunRecord(3, "Open 9am to 5pm.", verdict=verdict(True, "ok")),
+        ],
+        early_stopped=True,
+    )
+    full = results()[1]
+    report = build_report(config(tmp_path), [HOURS, REFUNDS], [stopped, full])
+    assert report["defaults"]["early_stop"] is True
+    assert report["summary"]["attempts_planned"] == 23
+    assert report["summary"]["attempts_made"] == 6
+    assert report["summary"]["scenarios_stopped"] == 1
+    assert report["summary"]["early_stopped"] is True
+    entry = report["criteria"][0]["scenarios"][0]
+    assert entry["early_stopped"] is True
+    assert entry["attempts_planned"] == 20 and entry["attempts_made"] == 3
+    assert entry["runs"] == 3 and entry["judged"] == 3 and entry["required_passes"] == 19
+    assert entry["status"] == "failed"
+    other = report["criteria"][1]["scenarios"][0]
+    assert other["early_stopped"] is False and other["attempts_made"] == 3
+    html = render_html(report)
+    assert "stopped after 3 of 20</span>" in html
+    assert "19 / 20<br>" in html
+    assert "which saved 17 of 23 planned attempts across 1 scenario." in html
+    assert "a bound rather than an estimate" in html
+    assert html.count("stopped after 3 of 20") == 1

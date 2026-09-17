@@ -161,7 +161,8 @@ def summary(entry: dict[str, Any] | None) -> dict[str, Any] | None:
 # Reports from 0.3 onwards carry misses; earlier ones carry a threshold and, from 0.2.0,
 # required_passes. Any of the three says what the gate needed.
 def passes_needed(entry: dict[str, Any]) -> int | None:
-    runs = entry.get("runs")
+    # A stopped scenario's `runs` is the attempts made; the gate was set on the planned count.
+    runs = entry.get("attempts_planned", entry.get("runs"))
     if not isinstance(runs, int):
         return None
     if isinstance(entry.get("misses"), int):
@@ -215,12 +216,70 @@ def classify(
     return "unchanged", detail, diff
 
 
+# A scenario that stopped early has a pass rate that is a bound, not an estimate: a lost
+# one stopped at the moment its failures crossed the line. Fisher's test assumes a fixed
+# sample, so such scenarios are refused unless the caller insists.
+def early_stopped_ids(
+    old: dict[str, dict[str, Any]], new: dict[str, dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    return (
+        sorted(key for key, entry in old.items() if entry.get("early_stopped") is True),
+        sorted(key for key, entry in new.items() if entry.get("early_stopped") is True),
+    )
+
+
+def check_full_sampling(old: dict[str, Any], new: dict[str, Any]) -> None:
+    stopped_old, stopped_new = early_stopped_ids(scenarios_by_id(old), scenarios_by_id(new))
+    if not stopped_old and not stopped_new:
+        return
+    sides = []
+    if stopped_old:
+        sides.append(f"in the old report: {', '.join(stopped_old)}")
+    if stopped_new:
+        sides.append(f"in the new report: {', '.join(stopped_new)}")
+    raise CompareError(
+        "cannot compare scenarios that stopped early ("
+        + "; ".join(sides)
+        + "): a stopped scenario's pass rate is a bound, not an estimate, so the test does "
+        "not apply. Re-run both sides with --no-early-stop, or pass --allow-early-stopped to "
+        "compare them anyway"
+    )
+
+
+def attempts_made(entry: dict[str, Any]) -> int:
+    value = entry.get("attempts_made", entry.get("runs"))
+    return int(value) if isinstance(value, int) else 0
+
+
+# Two runs of very different sizes can still be compared, but the reader should know:
+# the smaller side's interval dominates, and under early stopping a short run is one that
+# was decided quickly.
+def imbalance_notes(changes: list[Change]) -> list[str]:
+    notes = []
+    for change in changes:
+        if change.old is None or change.new is None:
+            continue
+        before, after = attempts_made(change.old), attempts_made(change.new)
+        if not before or not after:
+            continue
+        if max(before, after) > 2 * min(before, after):
+            notes.append(
+                f"note: {change.id} made {before} attempts in the old report and {after} in "
+                "the new, more than a factor of two apart; the smaller run bounds what the "
+                "comparison can show"
+            )
+    return notes
+
+
 def compare_reports(
     old: dict[str, Any],
     new: dict[str, Any],
     alpha: float = DEFAULT_ALPHA,
     min_effect: float = DEFAULT_MIN_EFFECT,
+    allow_early_stopped: bool = False,
 ) -> list[Change]:
+    if not allow_early_stopped:
+        check_full_sampling(old, new)
     before, after = scenarios_by_id(old), scenarios_by_id(new)
     changes: list[Change] = []
     for scenario_id in sorted(set(before) | set(after)):
@@ -286,8 +345,11 @@ def comparison_dict(
     changes: list[Change],
     alpha: float,
     min_effect: float,
+    old: dict[str, Any] | None = None,
+    new: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     power = power_of(changes, alpha)
+    old, new = old or {"criteria": []}, new or {"criteria": []}
     return {
         "tool": "juried",
         "schema_version": COMPARE_SCHEMA_VERSION,
@@ -296,6 +358,11 @@ def comparison_dict(
         "alpha": alpha,
         "min_effect": min_effect,
         "detectable_drop": None if power is None else power.to_dict(),
+        "early_stopped": {
+            "old": early_stopped_ids(scenarios_by_id(old), {})[0],
+            "new": early_stopped_ids({}, scenarios_by_id(new))[1],
+        },
+        "notes": imbalance_notes(changes),
         "regressions": sum(1 for change in changes if change.regression),
         "within_noise": sum(1 for change in changes if change.kind in NOISE),
         "changes": [change.to_dict() for change in changes if change.kind != "unchanged"],

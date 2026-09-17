@@ -142,6 +142,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--juried-no-cache", action="store_true", help="ignore cached verdicts and responses"
     )
     group.addoption(
+        "--juried-no-early-stop",
+        action="store_true",
+        help="run every planned attempt instead of stopping a scenario once its gate is decided",
+    )
+    group.addoption(
         "--juried-cache-responses",
         action="store_true",
         help="replay responses from the cache instead of sampling the feature",
@@ -167,6 +172,8 @@ def pytest_configure(config: pytest.Config) -> None:
         )
         if config.getoption("--juried-cache-responses"):
             juried_config.run.cache_responses = True
+        if config.getoption("--juried-no-early-stop"):
+            juried_config.run.early_stop = False
         # Resolve ${NAME} references now so a missing variable fails before any scenario runs.
         expand_env(juried_config.target.model_dump(), os.environ)
         state = JuriedState(
@@ -213,6 +220,7 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
             "juried: gate on judge-corrected rate (the corrected interval's lower bound must "
             f"meet {gate.implied_rate:.0%})"
         )
+    lines.append(f"juried: {run.describe_early_stop()}")
     return lines
 
 
@@ -304,6 +312,9 @@ class ScenarioItem(pytest.Item):
                 ("passes_needed", self.result.required_passes),
                 ("threshold", self.result.threshold),
                 ("transport_errors", self.result.transport_errors),
+                ("attempts_planned", self.result.attempts_planned),
+                ("attempts_made", self.result.attempts_made),
+                ("early_stopped", str(self.result.early_stopped).lower()),
             ]
         )
         corrected = self.result.corrected
@@ -365,6 +376,8 @@ def summarise(result: ScenarioResult) -> str:
         text += f", {result.checks_failed} failed a check"
     if result.corrected is not None:
         text += f"; {result.corrected.describe()}"
+    if result.early_stopped:
+        text += f", {result.describe_stop()}"
     return text
 
 
@@ -444,6 +457,11 @@ def format_gate_failure(result: ScenarioResult, state: JuriedState) -> str:
             f"  judge errors: {result.judge_errors}",
         ]
     )
+    if result.early_stopped:
+        lines.append(
+            f"  attempts: {result.describe_stop()} planned (the gate was decided, so the "
+            "attempts not yet sent were skipped)"
+        )
     if result.responses_from_cache:
         lines.append(
             f"  responses replayed from cache: {result.responses_from_cache} "
@@ -528,6 +546,12 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     )
     if run_cost:
         terminalreporter.write_line(run_cost)
+    if state.config.run.early_stop_applies:
+        planned = sum(result.attempts_planned for result in state.results)
+        made = sum(result.attempts_made for result in state.results)
+        terminalreporter.write_line(
+            f"early stop saved {planned - made} of {planned} planned attempts"
+        )
     replayed = sum(result.responses_from_cache for result in state.results)
     if replayed:
         total = sum(result.total for result in state.results)

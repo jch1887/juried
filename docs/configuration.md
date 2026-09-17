@@ -27,6 +27,7 @@ runs = 20          # attempts per scenario
 misses = 1         # failed attempts a scenario may have and still pass
 concurrency = 4    # requests in flight to the target, across all scenarios
 # concurrency_scope = "global"   # under pytest-xdist, share the caps across workers
+# early_stop = true              # stop a scenario once its gate is decided
 
 [judge]
 provider = "anthropic"    # anthropic, openai or stub
@@ -35,6 +36,14 @@ concurrency = 4           # requests in flight to the judge, across all scenario
 # base_url = "http://127.0.0.1:11434/v1"   # any OpenAI compatible endpoint, with provider = "openai"
 # api_key_env = "OLLAMA_API_KEY"           # variable holding the key, when not the provider's own
 ```
+
+`early_stop` (default true) stops a scenario once its gate is decided: lost when the
+failed attempts exceed `misses`, won when the passes reach `runs - misses`. Attempts in
+flight finish and count; the rest are never sent. `juried run --no-early-stop` or
+`early_stop = false` runs every planned attempt, which `juried compare` and calibration
+set building want. Under `gate_on = "corrected"` early stopping is always off, because
+the corrected interval needs every attempt, and the run header says so. The asymmetry of
+the saving and what a stopped scenario's rate means are in [runs.md](runs.md#early-stopping).
 
 Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
 the parameter, so the example leaves it out; when it is unset nothing is sent and the report

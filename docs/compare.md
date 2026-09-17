@@ -27,3 +27,13 @@ visible without failing the step. `--tolerance` from 0.2 is a deprecated alias f
 shown, for example `at 20 vs 20 runs this comparison can only detect drops of about 34
 points or more`; a comparison that must catch smaller regressions needs more runs on both
 sides.
+
+Both reports should come from full sampling. A scenario that stopped early has a pass
+rate that is a bound, not an estimate, because a lost one stops at the moment its
+failures cross the line, and Fisher's test assumes a fixed sample; `juried compare`
+refuses such a scenario on either side with a message naming it. Re-run both sides with
+`juried run --no-early-stop` (or `early_stop = false` under `[run]`), or pass
+`--allow-early-stopped` to compare anyway, in which case a warning is printed and the
+findings on those scenarios are hints. Separately, when a scenario's attempts made differ
+by more than a factor of two between the reports, a note says so, since the smaller run
+bounds what the comparison can show.

@@ -83,6 +83,12 @@ def test_env_overrides(tmp_path: Path) -> None:
     }
     config = parse_config(MINIMAL, tmp_path, environ=environ)
     assert config.run.runs == 3
+    assert config.run.early_stop is True and config.run.early_stop_applies
+    assert not parse_config(
+        MINIMAL, tmp_path, environ={"JURIED_RUN_EARLY_STOP": "false"}
+    ).run.early_stop
+    corrected = parse_config(MINIMAL + '[run]\ngate_on = "corrected"\n', tmp_path, environ={})
+    assert corrected.run.early_stop and not corrected.run.early_stop_applies
     assert config.cache_path == Path("/tmp/elsewhere")
     assert config.judge.model == "claude-opus-5"
     assert config.target.url == "http://override/chat"

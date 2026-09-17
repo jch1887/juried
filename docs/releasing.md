@@ -14,11 +14,17 @@ released, in this order.
    CONTRIBUTING.md describes what they send and how a missing key skips a provider.
 3. The version is set in `pyproject.toml` and `src/juried/__init__.py`, the CHANGELOG
    section is headed with the version and the date, and both are merged to `main`.
-4. Tag `main` and push the tag:
+4. Tag `main` and push the tag. Pull first, so the tag lands on the merged version commit
+   and not the one before it, and check the version the tag will carry:
 
    ```
+   git checkout main && git pull --ff-only origin main
+   grep '^version' pyproject.toml    # must print the version being released
    git tag vX.Y.Z && git push origin vX.Y.Z
    ```
+
+   A tag on the wrong commit rebuilds the previous version; PyPI accepts the identical
+   files as a no-op and the publish run still reports success, so nothing else warns.
 
 5. Create a GitHub release from the tag, with the CHANGELOG section for the version as its
    body. Publishing the release triggers `.github/workflows/publish.yml`, which builds the
@@ -31,5 +37,6 @@ released, in this order.
    ```
 
    `gh run watch <run-id>` follows the publish run to its end.
-6. Confirm that <https://pypi.org/project/juried/> shows the new version and that the
-   PyPI badge in the README has updated.
+6. Confirm that <https://pypi.org/project/juried/> shows the new version. The release
+   badge in the README reads the GitHub release and follows within five minutes; the
+   shields.io PyPI badge was dropped because it caches for twelve hours.

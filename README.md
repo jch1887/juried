@@ -3,7 +3,7 @@
   <br>
   <a href="https://github.com/jch1887/juried/actions/workflows/check.yml"><img src="https://github.com/jch1887/juried/actions/workflows/check.yml/badge.svg" alt="Check"></a>
   <a href="https://github.com/jch1887/juried/actions/workflows/live.yml"><img src="https://github.com/jch1887/juried/actions/workflows/live.yml/badge.svg" alt="Live provider contract"></a>
-  <a href="https://pypi.org/project/juried/"><img src="https://img.shields.io/pypi/v/juried" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/juried/"><img src="https://img.shields.io/github/v/release/jch1887/juried" alt="Latest release"></a>
   <br>
   Acceptance testing for LLM features, with verdicts corrected for the judge's own error rate.
 </p>

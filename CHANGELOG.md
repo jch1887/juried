@@ -7,6 +7,13 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Changed
+
+- docs/releasing.md pulls `main` and checks the version before tagging, since a tag on the
+  commit before the version bump rebuilds the previous release without any error.
+- The README's version badge reads the latest GitHub release rather than PyPI, since
+  shields.io caches the PyPI figure for twelve hours and the release one for five minutes.
+
 ## [0.3.1] - 2026-09-17
 
 ### Fixed

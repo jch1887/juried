@@ -91,9 +91,14 @@ corrected = (observed + specificity − 1) / (sensitivity + specificity − 1)
 Sensitivity is the share of human-labelled passes the judge passed, specificity the share
 of labelled fails it failed. They are taken per criterion when it has at least
 `min_calibration_cases` (default 10) labelled cases under `[judge]`, otherwise from the
-whole set. The interval is a bootstrap of 2,000 resamples over the calibration cases and
-the attempts together, from a fixed seed recorded in the report, so it carries the
-uncertainty in the judge as well as in the run. Each scenario then reports:
+whole set. The interval is a bootstrap of 2,000 iterations from a fixed seed recorded in
+the report: each iteration resamples the calibration cases for a fresh sensitivity and
+specificity, and draws the observed rate from the Jeffreys posterior
+Beta(passes + ½, fails + ½) rather than resampling the attempts, so it carries the
+uncertainty in the judge as well as in the run. The draw is what keeps an observed 10/10
+from reading as certainty: resampling ten passes only ever gives ten passes, while the
+posterior spreads below 100% the way a sample of ten deserves, and a judge that passes bad
+responses pushes the whole interval down from there. Each scenario then reports:
 
 ```
 18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%

@@ -323,10 +323,12 @@ def test_early_stop_can_be_switched_off_by_flag_or_config(
 def test_gate_on_corrected_switches_early_stop_off(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
-    write_project(pytester, fake_bot_url)
+    # A gate the corrected lower bound can meet: 70% from 3 misses in 10, see
+    # test_gate_on_corrected_uses_the_corrected_lower_bound.
+    write_project(pytester, fake_bot_url, runs=10)
     text = (pytester.path / "juried.toml").read_text()
     (pytester.path / "juried.toml").write_text(
-        text.replace("misses = 0", 'misses = 0\ngate_on = "corrected"')
+        text.replace("misses = 0", 'misses = 3\ngate_on = "corrected"')
     )
     write_calibration(pytester, CALIBRATION_REPORT_STUB)
     result = pytester.runpytest("-v", "-k", "hours")
@@ -481,10 +483,13 @@ def test_corrected_rate_is_reported_when_a_calibration_report_matches(
 def test_gate_on_corrected_uses_the_corrected_lower_bound(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
-    write_project(pytester, fake_bot_url)
+    # Three misses in ten: the gate needs a corrected lower bound of 70%, which 10/10 under
+    # this judge clears at 79%. No count of passes can put an interval's lower bound at
+    # 100%, so a corrected gate with no misses tolerated could never hold.
+    write_project(pytester, fake_bot_url, runs=10)
     text = (pytester.path / "juried.toml").read_text()
     (pytester.path / "juried.toml").write_text(
-        text.replace("misses = 0", 'misses = 0\ngate_on = "corrected"')
+        text.replace("misses = 0", 'misses = 3\ngate_on = "corrected"')
     )
     missing = pytester.runpytest("-k", "hours")
     assert missing.ret == pytest.ExitCode.USAGE_ERROR
@@ -496,14 +501,13 @@ def test_gate_on_corrected_uses_the_corrected_lower_bound(
     result.stdout.re_match_lines(
         [
             r"juried: gate on judge-corrected rate \(the corrected interval's lower bound must "
-            r"meet 100%\)"
+            r"meet 70%\)"
         ]
     )
-    # 4/4 observed corrects to 100% whatever the judge's rates, so this gate holds; the
-    # failing direction is covered on the runner with 18 of 20.
+    # The failing direction is covered on the runner with 18 of 20.
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(
-        ["*PASSED 4/4 (needs 4, interval 0.51 to 1.00); corrected 100% (100% to 100%)*"]
+        ["*PASSED 10/10 (needs 7, interval 0.72 to 1.00); corrected 100% (79% to 100%)*"]
     )
     report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
     scenario = report["criteria"][0]["scenarios"][0]

@@ -89,7 +89,9 @@ change between minor versions; every such change is listed under "Breaking chang
   the judge's sensitivity and specificity from it, per criterion when the criterion has at
   least `[judge] min_calibration_cases` (default 10) labelled cases and from the whole set
   otherwise, and applies the Rogan-Gladen estimator with a bootstrap interval of 2,000
-  resamples over the calibration cases and the attempts together, from a fixed seed. The
+  iterations from a fixed seed, each resampling the calibration cases and drawing the
+  observed rate from the Jeffreys posterior Beta(passes + ½, fails + ½), so an observed
+  10/10 or 0/10 gets an interval of real width rather than "100% to 100%". The
   pytest summary, the gate failure block, JUnit `user_properties`, the JSON report
   (`corrected_rate`, `corrected_interval`, `judge_sensitivity`, `judge_specificity`,
   `calibration_cases_used`, `calibration_scope`, `bootstrap_seed`, `corrected_refused`, and

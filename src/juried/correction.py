@@ -207,9 +207,14 @@ def percentile(values: list[float], fraction: float) -> float:
     return values[max(0, min(len(values) - 1, index))]
 
 
-# Rogan-Gladen on the observed rate, with a bootstrap that resamples the calibration cases
-# and the scenario's judged attempts together, so the interval carries both the sampling
-# noise of the run and the uncertainty in how wrong the judge is.
+# Rogan-Gladen on the observed rate, with a bootstrap interval that carries both the
+# sampling noise of the run and the uncertainty in how wrong the judge is. Each iteration
+# resamples the calibration cases for a fresh sensitivity and specificity, and draws the
+# observed rate from the Jeffreys posterior Beta(passes + 1/2, fails + 1/2) rather than
+# resampling the attempts: a resample of 10/10 is always 10/10, which the clamp in
+# rogan_gladen() turns into a zero width interval at 100% (and likewise at 0/10), while
+# the Beta draw spreads below 1 and above 0 the way an observed 10/10 deserves. The
+# percentile interval is widened to the point estimate should it ever fall outside.
 def correct(
     passes: int,
     judged: int,
@@ -253,19 +258,18 @@ def correct(
     rate = rogan_gladen(observed, error.sensitivity, error.specificity)
     assert rate is not None
     rng = random.Random(seed)
-    outcomes = [True] * passes + [False] * (judged - passes)
     samples: list[float] = []
     for _ in range(resamples):
         boot_error = judge_error(rng.choices(cases, k=len(cases)), scope)
-        boot_passes = sum(1 for outcome in rng.choices(outcomes, k=judged) if outcome)
+        boot_observed = rng.betavariate(passes + 0.5, judged - passes + 0.5)
         if boot_error is None:
             continue
-        value = rogan_gladen(boot_passes / judged, boot_error.sensitivity, boot_error.specificity)
+        value = rogan_gladen(boot_observed, boot_error.sensitivity, boot_error.specificity)
         if value is not None:
             samples.append(value)
     samples.sort()
     interval = (
-        Interval(percentile(samples, 0.025), percentile(samples, 0.975))
+        Interval(min(percentile(samples, 0.025), rate), max(percentile(samples, 0.975), rate))
         if samples
         else Interval(0.0, 1.0)
     )

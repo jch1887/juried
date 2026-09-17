@@ -15,6 +15,7 @@ from juried.correction import (
     rogan_gladen,
 )
 from juried.judge.prompts import PROMPT_VERSION
+from juried.stats import wilson_interval
 
 
 def cases(criterion: str, passes: tuple[int, int], fails: tuple[int, int]) -> list[LabelledCase]:
@@ -118,6 +119,54 @@ def test_bootstrap_is_deterministic_under_a_fixed_seed() -> None:
         "bootstrap_seed",
         "corrected_refused",
     }
+
+
+def test_interval_keeps_its_width_at_all_passes_and_at_none() -> None:
+    # A judge that passes 2 of 7 bad responses (false pass 29%) and every good one. Ten
+    # of ten observed is not certainty, and a judge that false passes pulls the rate down,
+    # so the corrected lower bound sits below the observed Wilson lower bound.
+    false_pass = correct(10, 10, calibration(cases("c", (3, 0), (5, 2))), "c", 10)
+    assert false_pass is not None and false_pass.rate == 1.0
+    assert false_pass.interval is not None
+    assert false_pass.interval.lower < wilson_interval(10, 10).lower
+    assert false_pass.interval.lower == pytest.approx(0.6677, abs=1e-4)
+    # No bootstrap sample reaches the clamped point estimate, so the upper bound is
+    # widened to it rather than reporting 100% outside its own interval.
+    assert false_pass.interval.upper == 1.0
+    assert false_pass.describe().startswith("corrected 100% (67% to 100%)")
+    # The mirror: a judge that fails 2 of 7 good responses pushes 0 of 10 up.
+    false_fail = correct(0, 10, calibration(cases("c", (5, 2), (3, 0))), "c", 10)
+    assert false_fail is not None and false_fail.rate == 0.0
+    assert false_fail.interval is not None
+    assert false_fail.interval.lower == 0.0
+    assert false_fail.interval.upper > wilson_interval(0, 10).upper
+    assert false_fail.interval.upper == pytest.approx(0.3414, abs=1e-4)
+
+
+def test_interval_contains_the_point_estimate() -> None:
+    mid = correct(7, 10, calibration(cases("c", (30, 1), (28, 3))), "c", 10)
+    assert mid is not None and mid.rate is not None and mid.interval is not None
+    assert mid.rate == pytest.approx(0.6926, abs=1e-4)
+    assert mid.interval.lower < mid.rate < mid.interval.upper
+    assert mid.interval.lower == pytest.approx(0.3426, abs=1e-4)
+    assert mid.interval.upper == pytest.approx(0.9435, abs=1e-4)
+
+
+def test_attempts_are_drawn_not_resampled() -> None:
+    # A judge the calibration set always agrees with: every resample of the cases gives
+    # sensitivity 1 and specificity 1, so the only randomness left is the draw of the
+    # observed rate. Same seed, same interval; another seed, another interval.
+    perfect = calibration(cases("c", (10, 0), (10, 0)))
+    first = correct(10, 10, perfect, "c", 10)
+    again = correct(10, 10, perfect, "c", 10)
+    other = correct(10, 10, perfect, "c", 10, seed=7)
+    assert first is not None and again is not None and other is not None
+    assert first.interval == again.interval
+    assert first.interval is not None and other.interval is not None
+    assert first.interval != other.interval
+    assert first.interval.lower == pytest.approx(0.7777, abs=1e-4)
+    assert other.interval.lower == pytest.approx(0.7900, abs=1e-4)
+    assert first.interval.upper == other.interval.upper == 1.0
 
 
 def test_calibration_report_round_trip_and_matching(tmp_path: Path) -> None:

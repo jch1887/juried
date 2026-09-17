@@ -9,26 +9,6 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Breaking changes
 
-- `Provider.generate` takes an `adversarial` flag, so a provider implementation written
-  against 0.2 must accept it.
-- A quoted phrase in `expected` is enforced before the judge, for every provider: a
-  response missing one fails the attempt with the reason and no judge call is made. The
-  match now ignores case, runs of whitespace, hyphens and punctuation that ends a word, so
-  "14-days," satisfies `"14 days"`; `[judge] strict_quotes = true` restores the word for
-  word match. The stub judge uses the same rule. Attempts that a check decided carry a
-  verdict with model `checks`, are not written to `.juried/verdicts.jsonl`, and count as
-  failures in the gate as any failed attempt does.
-- `juried compare` tests a drop instead of subtracting it. For each scenario in both
-  reports it runs Fisher's exact test, one sided for a decrease, on the passes and fails,
-  and a drop is a regression only when its p-value is below `--alpha` (default 0.05) and
-  the pass rate fell by at least `--min-effect` (default 0.10). Smaller or less certain
-  drops are listed under "drops within noise" with the p-value and the Newcombe 95%
-  interval for the difference, and do not fail the step; a drop in the interval's lower
-  bound alone is no longer a regression, and a rise is "improved" only on the same test
-  turned round. `--tolerance` is a deprecated alias for `--min-effect`, removed in 0.4.
-  The comparison JSON gains `schema_version` (1), `alpha`, `min_effect`,
-  `detectable_drop` and `within_noise` at the top level and `p_value`, `diff`,
-  `diff_interval` and `significant` per change; `tolerance` is gone from it.
 - The gate is a count of tolerated misses, not a threshold on the interval. `[run] misses`
   (default 1) and a per scenario `misses` say how many attempts may fail, and a scenario
   passes when `passes >= runs - misses`. The Wilson interval is still computed and shown but
@@ -50,24 +30,29 @@ change between minor versions; every such change is listed under "Breaking chang
   field changed meaning, so `schema_version` stays at 1.
 - The HTML report's scenario table shows "Gate needs" and one "Interval" column in place of
   the threshold, lower bound and upper bound columns.
+- `juried compare` tests a drop instead of subtracting it. For each scenario in both
+  reports it runs Fisher's exact test, one sided for a decrease, on the passes and fails,
+  and a drop is a regression only when its p-value is below `--alpha` (default 0.05) and
+  the pass rate fell by at least `--min-effect` (default 0.10). Smaller or less certain
+  drops are listed under "drops within noise" with the p-value and the Newcombe 95%
+  interval for the difference, and do not fail the step; a drop in the interval's lower
+  bound alone is no longer a regression, and a rise is "improved" only on the same test
+  turned round. `--tolerance` is a deprecated alias for `--min-effect`, removed in 0.4.
+  The comparison JSON gains `schema_version` (1), `alpha`, `min_effect`,
+  `detectable_drop` and `within_noise` at the top level and `p_value`, `diff`,
+  `diff_interval` and `significant` per change; `tolerance` is gone from it.
+- A quoted phrase in `expected` is enforced before the judge, for every provider: a
+  response missing one fails the attempt with the reason and no judge call is made. The
+  match now ignores case, runs of whitespace, hyphens and punctuation that ends a word, so
+  "14-days," satisfies `"14 days"`; `[judge] strict_quotes = true` restores the word for
+  word match. The stub judge uses the same rule. Attempts that a check decided carry a
+  verdict with model `checks`, are not written to `.juried/verdicts.jsonl`, and count as
+  failures in the gate as any failed attempt does.
+- `Provider.generate` takes an `adversarial` flag, so a provider implementation written
+  against 0.2 must accept it.
 
 ### Added
 
-- `juried label` grows the calibration set from real output. After every run the responses
-  a human should look at are written to `.juried/label-queue.jsonl`, deduplicated by
-  content and tagged with why: `split` (the votes disagreed), `boundary` (the scenario
-  finished within one miss of its gate), `check_disagreed` (the checks passed but the judge
-  failed the response), `low_confidence` (the judge's reason hedged, by a fixed word list),
-  or `sampled` (a random share, `[label] sample_rate`, default 2%, of the rest); the queue
-  keeps earlier unlabelled entries and is capped at `[label] queue_size` (default 50),
-  newest first. `juried label` shows each case in the terminal with the judge's verdict
-  last and takes `p`, `f`, `s`, `n` or `q`, appending labels to
-  `calibration/from-runs/<criterion>.yaml` with a `source` naming the run; `--html` writes
-  `reports/label-queue.html` (no scripts) and `label-queue.csv`, and `--import` reads
-  marks back from either. Calibration cases gain an optional `source` field, `juried
-  calibrate` reports how many cases came from hand labelling and how many from runs, and
-  every run's summary says how many responses are waiting and the calibration set size
-  per criterion.
 - Every scenario's pass rate is corrected for the judge's own error rate. When
   `reports/juried-calibration.json` is for the configured judge (same provider and model,
   and the same temperature and prompt version where the report records them), juried takes
@@ -88,45 +73,28 @@ change between minor versions; every such change is listed under "Breaking chang
   stays `"observed"` in 0.3 so nothing changes silently; the release after 0.3 flips it.
 - The calibration report's `judge` entry records `temperature` and `prompt_version`, so a
   report can be matched to the judge it measured.
-- Under `pytest-xdist` the target and judge concurrency caps are divided by the worker
-  count, never below one each, so `concurrency = 4` with four workers is four requests in
-  flight rather than sixteen; the header prints the per worker figure.
-  `[run] concurrency_scope = "worker"` gives every worker the full caps as before.
-- Adversarial scenarios. `kind: adversarial` and a matching pytest marker;
-  `juried generate --adversarial` writes `scenarios/generated/<criterion>.adversarial.yaml`
-  with attempts to make the feature violate the criterion (instruction override, false
-  premise, contradiction of an earlier turn, appeal to the judge, off topic pull, withheld
-  data); and `[generate] adversarial_pack = true` adds juried's built in pack of criterion
-  agnostic attacks (prompt injection, system prompt extraction, PII disclosure) under three
-  criteria of their own. The example project gains three adversarial scenarios and six
-  labelled calibration cases for them.
-- Deterministic checks. A scenario's `checks` list runs on every response before the judge:
-  `contains`, `not_contains`, `regex`, `json_schema` (a schema file, validated with the
-  `jsonschema` package from the new `juried[schema]` extra), `max_latency_ms` and
-  `max_chars`. A failing check fails the attempt with its reason and skips the judge. Every
-  attempt records which checks ran and which failed; the failing run output, the JSON
-  report (`checks` per attempt and per failure, `checks_failed` per scenario) and the HTML
-  report show them.
-- Streaming targets. `[target] stream = true` with `stream_format` (`sse` or `ndjson`)
-  and `stream_path`, the dotted path to the text delta in each event, reads the reply as
-  it arrives: the deltas are joined into the response, events without one are skipped,
-  token counts are taken from whichever event carries them, and the time to the first
-  delta is recorded on every request and attempt as `first_token_ms`. Scenario `latency`
-  in the JSON report gains a `first_token` entry and the HTML latency column shows it.
-  The example bot streams as server-sent events with `python server.py --sse` and takes
-  `--port`, and a test drives the real target against it.
-- `[judge] api_key_env` and `[generate] api_key_env` name the environment variable holding
-  the provider's key when it is not `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, so a second
-  account, a proxy or a local endpoint can have its own; generation inherits the judge's
-  while the provider is the same, as it does `base_url`. With `provider = "openai"` and
-  `base_url` any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure
-  OpenAI with its path) serves as judge and generator: against a custom `base_url` the
-  client sends `max_tokens`, which those servers know, rather than `max_completion_tokens`.
-  The live provider workflow sends one judge call to a local Ollama when the runner has
-  one and prints a notice, not a failure, when it does not.
-- `juried compare` prints, after the findings, the smallest drop the two runs' sizes could
-  have detected at the given alpha with 80% power from a 90% pass rate, so a green
-  comparison at 20 runs is not mistaken for proof that nothing moved.
+- `juried label` grows the calibration set from real output. After every run the responses
+  a human should look at are written to `.juried/label-queue.jsonl`, deduplicated by
+  content and tagged with why: `split` (the votes disagreed), `boundary` (the scenario
+  finished within one miss of its gate), `check_disagreed` (the checks passed but the judge
+  failed the response), `low_confidence` (the judge's reason hedged, by a fixed word list),
+  or `sampled` (a random share, `[label] sample_rate`, default 2%, of the rest); the queue
+  keeps earlier unlabelled entries and is capped at `[label] queue_size` (default 50),
+  newest first. `juried label` shows each case in the terminal with the judge's verdict
+  last and takes `p`, `f`, `s`, `n` or `q`, appending labels to
+  `calibration/from-runs/<criterion>.yaml` with a `source` naming the run; `--html` writes
+  `reports/label-queue.html` (no scripts) and `label-queue.csv`, and `--import` reads
+  marks back from either. Calibration cases gain an optional `source` field, `juried
+  calibrate` reports how many cases came from hand labelling and how many from runs, and
+  every run's summary says how many responses are waiting and the calibration set size
+  per criterion.
+- `juried run --misses N` and `JURIED_RUN_MISSES`, overriding `[run] misses`. A command
+  line `--misses` or `--threshold` replaces the file's gate outright, so it cannot disagree
+  with it.
+- JUnit `user_properties` `misses_tolerated` and `passes_needed`; `threshold` is still
+  written, derived as above, so existing dashboards keep working.
+- `juried compare` reads the passes a gate needed from `misses`, `required_passes` or
+  `threshold`, whichever the report carries, and writes it as `passes_needed` in `--json`.
 - The target side of a run is counted and priced. Every request to the endpoint is recorded
   per attempt with its HTTP status, bytes and latency, and summed per scenario and per run.
   New `[target]` keys: `usage_input_path` and `usage_output_path`, dotted paths to token
@@ -145,13 +113,45 @@ change between minor versions; every such change is listed under "Breaking chang
   judge's figures and are kept. Attempts carry `target_usage` and a `requests` list, and
   the report has a top level `target` entry with the URL template and prices. The HTML
   spend tile shows both sides, and the report warns when the target's cost is unknown.
-- `juried run --misses N` and `JURIED_RUN_MISSES`, overriding `[run] misses`. A command
-  line `--misses` or `--threshold` replaces the file's gate outright, so it cannot disagree
-  with it.
-- JUnit `user_properties` `misses_tolerated` and `passes_needed`; `threshold` is still
-  written, derived as above, so existing dashboards keep working.
-- `juried compare` reads the passes a gate needed from `misses`, `required_passes` or
-  `threshold`, whichever the report carries, and writes it as `passes_needed` in `--json`.
+- `juried compare` prints, after the findings, the smallest drop the two runs' sizes could
+  have detected at the given alpha with 80% power from a 90% pass rate, so a green
+  comparison at 20 runs is not mistaken for proof that nothing moved.
+- `[judge] api_key_env` and `[generate] api_key_env` name the environment variable holding
+  the provider's key when it is not `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, so a second
+  account, a proxy or a local endpoint can have its own; generation inherits the judge's
+  while the provider is the same, as it does `base_url`. With `provider = "openai"` and
+  `base_url` any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure
+  OpenAI with its path) serves as judge and generator: against a custom `base_url` the
+  client sends `max_tokens`, which those servers know, rather than `max_completion_tokens`.
+  The live provider workflow sends one judge call to a local Ollama when the runner has
+  one and prints a notice, not a failure, when it does not.
+- Streaming targets. `[target] stream = true` with `stream_format` (`sse` or `ndjson`)
+  and `stream_path`, the dotted path to the text delta in each event, reads the reply as
+  it arrives: the deltas are joined into the response, events without one are skipped,
+  token counts are taken from whichever event carries them, and the time to the first
+  delta is recorded on every request and attempt as `first_token_ms`. Scenario `latency`
+  in the JSON report gains a `first_token` entry and the HTML latency column shows it.
+  The example bot streams as server-sent events with `python server.py --sse` and takes
+  `--port`, and a test drives the real target against it.
+- Deterministic checks. A scenario's `checks` list runs on every response before the judge:
+  `contains`, `not_contains`, `regex`, `json_schema` (a schema file, validated with the
+  `jsonschema` package from the new `juried[schema]` extra), `max_latency_ms` and
+  `max_chars`. A failing check fails the attempt with its reason and skips the judge. Every
+  attempt records which checks ran and which failed; the failing run output, the JSON
+  report (`checks` per attempt and per failure, `checks_failed` per scenario) and the HTML
+  report show them.
+- Adversarial scenarios. `kind: adversarial` and a matching pytest marker;
+  `juried generate --adversarial` writes `scenarios/generated/<criterion>.adversarial.yaml`
+  with attempts to make the feature violate the criterion (instruction override, false
+  premise, contradiction of an earlier turn, appeal to the judge, off topic pull, withheld
+  data); and `[generate] adversarial_pack = true` adds juried's built in pack of criterion
+  agnostic attacks (prompt injection, system prompt extraction, PII disclosure) under three
+  criteria of their own. The example project gains three adversarial scenarios and six
+  labelled calibration cases for them.
+- Under `pytest-xdist` the target and judge concurrency caps are divided by the worker
+  count, never below one each, so `concurrency = 4` with four workers is four requests in
+  flight rather than sixteen; the header prints the per worker figure.
+  `[run] concurrency_scope = "worker"` gives every worker the full caps as before.
 
 ### Changed
 
@@ -159,19 +159,17 @@ change between minor versions; every such change is listed under "Breaking chang
   judge's own error rate", on PyPI, in the README and in `juried --help`, and the README's
   "Why juried" makes the corrected rate claim. A new section, "What the judge's mistakes
   cost you", shows the correction once and the report line it produces.
-- The README opens with "Why juried", which says what promptfoo, DeepEval and Inspect do
-  not do, checked against their documentation, and a table of what each runs against,
-  how each decides pass or fail, whether each samples repeatedly and whether each reports
-  judge error. "Five minutes with the stub" sits under Install with the six commands that
-  matter, and the roadmap says what is out of scope and where to go for it. The PyPI
-  classifiers gain `Intended Audience :: Information Technology` for the QA teams the
-  tagline names.
+- The README's "How a scenario passes" no longer needs a warning and a lookup table to
+  explain the gate; the interval is described once under the report section.
 - The README's "What a run costs" starts from the fact that a run costs target calls plus
   judge calls, shows both usage lines, and shows `--dry-run`. The example project's fake
   bot now reports token counts and its `juried.toml` prices them, so the example shows a
   target figure rather than only the stub judge's nil spend.
-- The README's "How a scenario passes" no longer needs a warning and a lookup table to
-  explain the gate; the interval is described once under the report section.
+- The README opens with "Why juried", which makes the corrected rate claim and says that
+  juried is a gate, with Ragas, Braintrust and LangSmith named for what it leaves out.
+  "Five minutes with the stub" sits under Install with the six commands that matter, and
+  the roadmap says what is out of scope and where to go for it. The PyPI classifiers gain
+  `Intended Audience :: Information Technology` for the QA teams the tagline names.
 
 ## [0.2.1] - 2026-09-13
 

@@ -22,6 +22,14 @@ released, in this order.
 
 5. Create a GitHub release from the tag, with the CHANGELOG section for the version as its
    body. Publishing the release triggers `.github/workflows/publish.yml`, which builds the
-   sdist and wheel and uploads them to PyPI.
+   sdist and wheel and uploads them to PyPI. With the GitHub CLI:
+
+   ```
+   awk '/^## \[X.Y.Z\]/{p=1; next} /^## \[/{p=0} p' CHANGELOG.md > /tmp/juried-X.Y.Z-notes.md
+   gh release create vX.Y.Z --title "juried X.Y.Z" --notes-file /tmp/juried-X.Y.Z-notes.md
+   gh run list --workflow publish.yml --limit 1
+   ```
+
+   `gh run watch <run-id>` follows the publish run to its end.
 6. Confirm that <https://pypi.org/project/juried/> shows the new version and that the
    PyPI badge in the README has updated.

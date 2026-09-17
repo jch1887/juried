@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "juried"
-version = "0.3.0"
+version = "0.3.1"
 description = "Acceptance testing for LLM features, with verdicts corrected for the judge's own error rate."
 readme = "README.md"
 license = "MIT"
@@ -55,9 +55,10 @@ juried = "juried.cli:main"
 juried = "juried.pytest_plugin"
 
 [tool.hatch.build.targets.sdist]
-# The README logo and the report screenshot are referenced by URL, so they need not travel
-# in the tarball; leaving them out takes the sdist from over 1 MB to under 200 KB.
-exclude = ["juried.png", "docs/report.png"]
+# The README logo and the report screenshot are referenced by URL, and the tests and the
+# example project live in the repository; leaving them out keeps the sdist under 200 KB
+# (the report logo that the HTML embeds is most of what remains).
+exclude = ["juried.png", "docs/report.png", "tests", "examples"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/juried"]

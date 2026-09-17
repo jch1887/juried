@@ -101,7 +101,7 @@ posterior spreads below 100% the way a sample of ten deserves, and a judge that 
 responses pushes the whole interval down from there. Each scenario then reports:
 
 ```
-18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%
+18/20 judged pass; corrected 92% (71–100%), judge false pass 6%, false fail 3%
 ```
 
 When sensitivity plus specificity minus one is below 0.5 the judge is too weak to

@@ -7,6 +7,16 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-17
+
+### Fixed
+
+- The example line under "Each scenario then reports" in the README and docs/judge.md
+  gave a corrected rate of 84% for 18/20 with a 6% false pass and 3% false fail rate; the
+  estimator gives 92%, and the interval now matches too.
+- The sdist no longer carries the tests or the example project, which had taken it over
+  the 200 KB that `pyproject.toml` promises. The wheel is unchanged.
+
 ## [0.3.0] - 2026-09-17
 
 ### Breaking changes
@@ -317,7 +327,8 @@ change between minor versions; every such change is listed under "Breaking chang
 - The README's claim that nothing but keys is ever read from disk (#24).
 - Concurrency tests no longer assert wall clock time, which failed on slow CI runners (#29).
 
-[Unreleased]: https://github.com/jch1887/juried/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jch1887/juried/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jch1887/juried/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jch1887/juried/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jch1887/juried/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jch1887/juried/compare/v0.1.1...v0.2.0

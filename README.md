@@ -19,19 +19,21 @@ teams, who own the acceptance criteria and the labels the judge is checked again
 
 ## Why juried
 
-Every LLM eval tool scores your feature with another LLM. Ask any of them how often that
-judge is wrong and you get silence: DeepEval and promptfoo report the judge's verdict as
-the result, with no error rate and no interval. juried assumes the judge is wrong some of
-the time, measures how often against your team's labels, and corrects the pass rate for
-it. A scenario that "passed 18 of 20" is reported as 84% with a 72–93% interval given a
-judge with a 6% false-pass rate, and the gate can run on that figure.
+Every eval tool that uses an LLM judge reports the judge's verdict as the
+result. juried treats the verdict as a measurement with an error rate: you
+label a set of responses, `juried calibrate` measures the judge's false-pass
+and false-fail rates against them, and the reported pass rate is corrected for
+both. "Passed 18 of 20" becomes 84% with a 72–93% interval, and the gate can
+run on that figure.
 
-The other things juried does differently follow from the same assumption. It samples each
-scenario repeatedly instead of once, because one run of a stochastic feature is an
-anecdote. Scenarios are pytest items, so `-k`, `-x`, `--junitxml` and your existing CI job
-work unchanged. It tests the HTTP endpoint you actually ship, not a function in process.
-And calibration is not a bonus feature; without it, the report tells you that its numbers
-are unchecked.
+The rest follows from taking the judge seriously as an instrument. Each
+scenario is sampled repeatedly, because one run of a stochastic feature is an
+anecdote. Scenarios are pytest items, so `-k`, `-x`, `--junitxml` and your
+existing CI job work unchanged. It tests the HTTP endpoint you ship, not a
+function in process.
+
+juried is a gate. If you want RAG metrics, tracing or a hosted dashboard, use
+Ragas, Braintrust or LangSmith alongside it.
 
 If you need RAG metrics, tracing, or a hosted dashboard, use Ragas, Braintrust or
 LangSmith. juried is a gate.

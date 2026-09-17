@@ -160,7 +160,7 @@ run. That is intended; more labels tighten it.
 Each scenario then reports:
 
 ```
-18/20 judged pass; corrected 84% (72–93%), judge false pass 6%, false fail 3%
+18/20 judged pass; corrected 92% (71–100%), judge false pass 6%, false fail 3%
 ```
 
 In 0.3 the corrected rate is reported and the gate still runs on the observed passes,

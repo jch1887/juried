@@ -35,18 +35,6 @@ function in process.
 juried is a gate. If you want RAG metrics, tracing or a hosted dashboard, use
 Ragas, Braintrust or LangSmith alongside it.
 
-If you need RAG metrics, tracing, or a hosted dashboard, use Ragas, Braintrust or
-LangSmith. juried is a gate.
-
-| Tool | Runs against | Decides pass or fail by | Samples repeatedly | Reports judge error |
-|---|---|---|---|---|
-| promptfoo | Model APIs, HTTP endpoints or custom functions | Assertions per test; a model graded rubric's own pass field, with an optional score threshold | Once by default; `evaluateOptions.repeat` runs each test N times | Not reported |
-| DeepEval | A test case built in Python around the feature's captured output | Each metric scores 0 to 1 and passes at a threshold; the case passes when every metric with a threshold does | Once | Not reported |
-| Inspect | Models, through tasks and solvers in process | Scorers, including a model grader; accuracy with a standard error | Once by default; `epochs` runs each sample N times, reduced by mean | Not reported |
-| juried | The HTTP endpoint you ship | Deterministic checks, then a pinned judge's verdict per attempt; passes over attempts against a miss count, or the judge-corrected rate | 20 attempts per scenario by default, with a Wilson interval | False pass and false fail rates against your team's labels, and a pass rate corrected for them |
-
-The competitor columns are from each tool's documentation in September 2026.
-
 ## Install
 
 ```
@@ -145,12 +133,8 @@ juried prints what the gate needs at the top of every run
 (`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
 and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
 release: juried derives `misses` from it and prints a notice naming the value to set instead.
-At 20 runs the old gate also needed 19 passes, but by a margin of a thousandth: 18 of 20
-has a Wilson lower bound of 0.699 against a threshold of 0.700. Above 20 runs the old
-threshold tolerated more misses, 4 at 30 runs and 8 at 50, so a project that raised `runs`
-and was green under 0.2 may fail under 0.3 until it sets `misses` deliberately. Failing
-gates, errors, concurrency and caching are in [docs/runs.md](docs/runs.md); what a run
-costs and the dry run in [docs/costs.md](docs/costs.md).
+Failing gates, errors, concurrency and caching are in [docs/runs.md](docs/runs.md); what a
+run costs and the dry run in [docs/costs.md](docs/costs.md).
 
 ## What the judge's mistakes cost you
 

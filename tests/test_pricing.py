@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from juried.pricing import (
@@ -13,6 +15,9 @@ from juried.pricing import (
     prices_for,
     target_estimate_usd,
 )
+
+# How far PRICES_DATED may lag behind today before the table is due a refresh.
+PRICE_TABLE_MAX_AGE_MONTHS = 4
 
 
 def test_usage_adds_and_serialises() -> None:
@@ -91,3 +96,14 @@ def test_describe_usage_states_source_or_asks_for_prices() -> None:
     unknown = describe_usage(Usage(1, 1, 1), "llama-9", None)
     assert "no list price known for llama-9" in unknown
     assert "input_price and output_price" in unknown
+
+
+def test_price_table_is_recent() -> None:
+    year, month = (int(part) for part in PRICES_DATED.split("-"))
+    today = date.today()
+    age = (today.year - year) * 12 + today.month - month
+    assert age <= PRICE_TABLE_MAX_AGE_MONTHS, (
+        f"PRICES in src/juried/pricing.py is dated {PRICES_DATED}, {age} months ago: check "
+        f"every entry against the providers' current list prices and set PRICES_DATED to "
+        f"{today:%Y-%m}"
+    )

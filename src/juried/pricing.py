@@ -6,6 +6,7 @@ from typing import Any
 # List prices in US dollars per million tokens, (input, output), as published in
 # September 2026. They drift, so a run states the date and [judge] can override them.
 PRICES_DATED = "2026-09"
+# tests/test_pricing.py fails once this date is more than four months old.
 PRICES: dict[str, tuple[float, float]] = {
     "stub": (0.0, 0.0),
     "claude-haiku-4-5": (1.00, 5.00),

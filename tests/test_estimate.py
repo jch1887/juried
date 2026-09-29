@@ -6,7 +6,7 @@ import pytest
 
 from juried.cli import main
 from juried.config import parse_config
-from juried.estimate import expected_attempts, plan_run, previous_pass_rates
+from juried.estimate import describe_plan, expected_attempts, plan_run, previous_pass_rates
 from juried.scenarios import Scenario
 
 ACCEPTANCE = "# Acceptance criteria\n\n## Opening hours\nThe bot states the hours.\n"
@@ -98,6 +98,7 @@ def test_dry_run_reports_expected_cost_under_early_stopping(
     assert main(["run", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "1 scenario under scenarios, 4 attempts in all" in out
+    assert "gate on observed passes (auto: no calibration report at " in out
     assert (
         "early stop on, but no previous report supplies pass rates, so the expected saving "
         "is unknown and the figures above are the full plan"
@@ -147,3 +148,41 @@ def test_run_passes_no_early_stop_to_pytest(
     assert "--juried-no-early-stop" in seen[0] and "-k" in seen[0]
     assert main(["run"]) == 0
     assert "--juried-no-early-stop" not in seen[1]
+
+
+def test_plan_follows_the_resolved_gate(tmp_path: Path) -> None:
+    config = parse_config(
+        '[target]\nurl = "http://127.0.0.1:9/chat"\n[run]\nruns = 4\nmisses = 1\n'
+        '[judge]\nprovider = "stub"\n',
+        tmp_path,
+        environ={},
+    )
+    known = Scenario(id="known", criterion="opening-hours", name="Known", message="m", expected="e")
+    previous = {"criteria": [{"scenarios": [{"id": "known", "judged": 10, "pass_rate": 0.5}]}]}
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "juried-calibration.json").write_text(
+        json.dumps(
+            {
+                "tool": "juried",
+                "generated_at": "2026-09-13T00:00:00+00:00",
+                "judge": {"provider": "stub", "model": "stub", "votes": 1},
+                "summary": {"accuracy": 0.9},
+                "cases": [{"criterion": "opening-hours", "human": "pass", "judge": "pass"}] * 30
+                + [{"criterion": "opening-hours", "human": "fail", "judge": "fail"}] * 24
+                + [{"criterion": "opening-hours", "human": "fail", "judge": "pass"}] * 6,
+            }
+        )
+    )
+    plan = plan_run(config, [known], previous)
+    assert plan.gate_on == "corrected" and plan.gate_note is None
+    assert not plan.early_stop and plan.expected is None
+    lines = describe_plan(plan, config)
+    assert "gate on judge-corrected rate" in lines
+    assert (
+        "early stop off (gate_on = corrected needs full sampling); every attempt above is planned"
+        in lines
+    )
+    config.run.gate_on = "observed"
+    observed = plan_run(config, [known], previous)
+    assert observed.gate_on == "observed" and observed.early_stop
+    assert "gate on observed passes" in describe_plan(observed, config)

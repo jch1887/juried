@@ -7,7 +7,6 @@ change to any of them is a new major version:
   existing keys are not removed or repurposed.
 - The scenario YAML shape: `criterion`, `scenarios`, and each scenario's `id`, `name`,
   `kind`, `message`, `expected`, `history`, `turns`, `checks`, `runs`, `misses` and `tags`.
-  `threshold` is deprecated and is removed in 0.4.
 - The calibration YAML shape: `criterion`, `cases`, and each case's `name`, `criterion`,
   `message`, `history`, `expected`, `response`, `verdict` and `note`.
 - The JSON report and the calibration report, governed by their `schema_version` field.

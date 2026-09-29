@@ -3,12 +3,9 @@ import pytest
 from juried.stats import (
     Gate,
     GateError,
-    best_possible_lower_bound,
     build_gate,
-    deprecation_notice,
     detectable_drop,
     fisher_decrease_p,
-    misses_from_threshold,
     newcombe_difference,
     normal_quantile,
     required_passes,
@@ -67,42 +64,30 @@ def test_gate_counts_misses() -> None:
 def test_equivalent_threshold_is_the_smallest_passing_lower_bound() -> None:
     assert Gate(20, 1).equivalent_threshold == pytest.approx(0.7639, abs=1e-4)
     assert Gate(10, 0).equivalent_threshold == pytest.approx(0.7225, abs=1e-4)
-    assert Gate(20, 1, threshold=0.7).equivalent_threshold == 0.7
 
 
-def test_best_possible_lower_bound_grows_with_runs() -> None:
-    assert best_possible_lower_bound(10) == pytest.approx(0.7225, abs=1e-4)
-    assert best_possible_lower_bound(30) > best_possible_lower_bound(10)
-
-
+# The rule reports from before 0.3 were gated by, which compare still reads.
 @pytest.mark.parametrize(
     ("runs", "threshold", "needed"),
     [(10, 0.7, 10), (20, 0.7, 19), (30, 0.7, 26), (50, 0.7, 42), (10, 0.5, 9), (10, 0.9, None)],
 )
-def test_misses_derive_from_the_old_threshold_table(
+def test_required_passes_follows_the_old_threshold_table(
     runs: int, threshold: float, needed: int | None
 ) -> None:
     assert required_passes(runs, threshold) == needed
-    assert misses_from_threshold(runs, threshold) == (None if needed is None else runs - needed)
     assert required_passes(0, 0.5) is None
 
 
-def test_build_gate_precedence() -> None:
-    assert build_gate(20, None, None) == Gate(20, 1)
-    assert build_gate(50, None, None) == Gate(50, 1)
-    assert build_gate(1, None, None) == Gate(1, 0)
-    assert build_gate(20, 3, None) == Gate(20, 3)
-    assert build_gate(20, 0, None) == Gate(20, 0)
-    assert build_gate(50, None, 0.7) == Gate(50, 8, 0.7)
-    assert build_gate(20, 1, 0.7) == Gate(20, 1, 0.7)
-    with pytest.raises(GateError, match=r"misses = 3 and threshold = 0.7 disagree: with 20 runs"):
-        build_gate(20, 3, 0.7)
-    with pytest.raises(GateError, match=r"threshold 0.90 can never be met with 10 runs"):
-        build_gate(10, None, 0.9)
+def test_build_gate_defaults_and_limits() -> None:
+    assert build_gate(20, None) == Gate(20, 1)
+    assert build_gate(50, None) == Gate(50, 1)
+    assert build_gate(1, None) == Gate(1, 0)
+    assert build_gate(20, 3) == Gate(20, 3)
+    assert build_gate(20, 0) == Gate(20, 0)
     with pytest.raises(GateError, match=r"misses = 4 is not below runs = 4"):
-        build_gate(4, 4, None)
+        build_gate(4, 4)
     with pytest.raises(GateError, match=r"runs must be at least 1"):
-        build_gate(0, None, None)
+        build_gate(0, None)
 
 
 @pytest.mark.parametrize(
@@ -116,14 +101,6 @@ def test_build_gate_precedence() -> None:
 def test_describe_gate_states_the_requirement_without_a_threshold(gate: Gate, text: str) -> None:
     assert gate.describe() == text
     assert "threshold" not in text
-
-
-def test_deprecation_notice_names_the_derived_value() -> None:
-    assert deprecation_notice(Gate(20, 1)) is None
-    assert deprecation_notice(build_gate(50, None, 0.7)) == (
-        "threshold is deprecated and is removed in 0.4: threshold 0.7 with 50 runs tolerates "
-        "8 misses, so set misses = 8 instead"
-    )
 
 
 @pytest.mark.parametrize(

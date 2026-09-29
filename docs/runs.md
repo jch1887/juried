@@ -8,7 +8,10 @@ the example walkthrough. What it costs, and the dry run that prices it first, ar
 
 
 A failing gate is a normal pytest failure that shows the passes, the misses tolerated, the
-interval and the first failing transcript with the judge's reason.
+interval and the first failing transcript with the judge's reason. The header states what
+the gate needs and what it runs on: the judge-corrected rate when a usable calibration
+report exists, otherwise the observed passes, in which case a warning at the end of the run
+says why and how to get the correction (see [judge.md](judge.md#what-the-gate-runs-on)).
 
 Errors are kept out of the maths. An HTTP error from your endpoint is a transport error
 and a judge that cannot answer (missing key, refusal, API outage) is a judge error; neither
@@ -47,8 +50,9 @@ scenario stops at the moment its failures cross the line, so its rate is a bound
 feature's quality, biased downwards; a won one stops the moment its passes suffice, biased
 upwards. Anything that reads the rate as a measurement should use full sampling:
 `juried compare` refuses stopped scenarios unless told otherwise, the calibration set
-should be built from full runs, and `gate_on = "corrected"` turns early stopping off
-because its interval needs every attempt, which the header says
+should be built from full runs, and a gate on the judge-corrected rate (`gate_on =
+"corrected"`, or the default `"auto"` once a usable calibration report exists) turns early
+stopping off because its interval needs every attempt, which the header says
 (`early stop off (gate_on = corrected needs full sampling)`). Set `early_stop = false`
 under `[run]`, or pass `juried run --no-early-stop`, to run every planned attempt.
 
@@ -105,7 +109,7 @@ bound the gate is equivalent to, for dashboards that plotted it before 0.3.
 
 The screenshot in the README is the example project's hand written scenarios under the stub judge, which
 is why the spend is nil, taken with juried 0.2.1, when the gate was a threshold on the
-lower bound. The refund scenario passed eight of ten runs and fails its gate; in 0.3 the
+lower bound. The refund scenario passed eight of ten runs and fails its gate; since 0.3 the
 same table shows the passes the gate needs (9 of 10 in the example) in place of the
 threshold and lower bound columns. The warning above the tables is the coverage check: one
 criterion had no scenarios in that run.
@@ -126,6 +130,10 @@ kill %1
 
 The example's `juried.toml` sets `runs = 10` so the loop is quick; a real project should
 keep the default of 20. `make example` runs the same sequence from the repository root.
+The committed calibration report is for `claude-haiku-4-5`, so under the stub judge the
+run says `gate on observed passes (auto: ... is not for this judge ...)` and warns at the
+end; that is the default `gate_on = "auto"` falling back, as it does in any project whose
+report is for another judge.
 
 The stub judge is a substring matcher: it passes any non empty response that contains every
 `"quoted phrase"` in `expected` and ignores the rest of the expectation. It shows the

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from juried.config import Config
+from juried.correction import resolve_gate
 from juried.pricing import (
     ASSUMED_INPUT_TOKENS,
     ASSUMED_OUTPUT_TOKENS,
@@ -71,6 +72,9 @@ class Plan:
     target_cost: float | None
     early_stop: bool = False
     expected: Expected | None = None
+    # What gate_on resolved to, and why "auto" came to "observed" when it did.
+    gate_on: str = "observed"
+    gate_note: str | None = None
 
     @property
     def total(self) -> float | None:
@@ -146,8 +150,10 @@ def plan_run(
     expected_attempts_total = 0.0
     expected_requests = 0.0
     with_rates = 0
+    resolution = resolve_gate(config)
+    early_stop = config.run.early_stop_for(resolution.gate_on)
     for scenario in scenarios:
-        gate = config.run.gate(scenario.runs, scenario.misses, scenario.threshold)
+        gate = config.run.gate(scenario.runs, scenario.misses)
         runs = gate.runs
         attempts += runs
         target_requests += runs * (len(scenario.turns) + 1)
@@ -189,7 +195,7 @@ def plan_run(
         target.cost_per_request,
     )
     expected_plan = None
-    if config.run.early_stop_applies:
+    if early_stop:
         # Both sides are priced per call, so the expected cost is the planned cost scaled
         # by the expected share of calls.
         expected_calls = expected_attempts_total * votes
@@ -215,8 +221,10 @@ def plan_run(
         target_tokens,
         target.cost_per_request,
         target_cost,
-        config.run.early_stop_applies,
+        early_stop,
         expected_plan,
+        resolution.gate_on,
+        resolution.note if resolution.fell_back else None,
     )
 
 
@@ -228,7 +236,7 @@ def scaled(cost: float | None, expected: float, planned: int) -> float | None:
 
 def describe_expected(plan: Plan, config: Config) -> str:
     if not plan.early_stop or plan.expected is None:
-        return f"{config.run.describe_early_stop()}; every attempt above is planned"
+        return f"{config.run.describe_early_stop(plan.gate_on)}; every attempt above is planned"
     expected = plan.expected
     if not expected.with_rates:
         return (
@@ -249,6 +257,14 @@ def describe_expected(plan: Plan, config: Config) -> str:
     elif expected.judge_cost is not None:
         text += f"; expected judge cost {format_usd(expected.judge_cost)}, target unknown"
     return text
+
+
+def describe_gate(gate_on: str, note: str | None) -> str:
+    if gate_on == "corrected":
+        return "gate on judge-corrected rate"
+    if note is None:
+        return "gate on observed passes"
+    return f"gate on observed passes (auto: {note})"
 
 
 def describe_plan(plan: Plan, config: Config) -> list[str]:
@@ -288,6 +304,7 @@ def describe_plan(plan: Plan, config: Config) -> list[str]:
     lines.append(calls)
     run_cost = describe_run_cost(plan.judge_cost, plan.target_cost)
     lines.append(run_cost or "estimated run cost: unknown until both sides are priced")
+    lines.append(describe_gate(plan.gate_on, plan.gate_note))
     lines.append(describe_expected(plan, config))
     if "assumed" in (plan.judge_tokens.source, plan.target_tokens.source):
         lines.append(

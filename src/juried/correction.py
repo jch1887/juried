@@ -146,6 +146,56 @@ def _recorded(calibration: Calibration) -> set[str]:
     return {"temperature"} if calibration.prompt_version is not None else set()
 
 
+# Why a judge error cannot correct anything, or None when it can.
+def refusal(error: JudgeError | None, accuracy: float) -> str | None:
+    if error is None:
+        return "the calibration set needs both labelled passes and labelled fails"
+    if not error.usable:
+        return (
+            f"sensitivity {error.sensitivity:.2f} + specificity {error.specificity:.2f} - 1 "
+            f"= {error.youden:.2f}, below {MIN_YOUDEN}; calibration accuracy was {accuracy:.2f}"
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class GateResolution:
+    """What `[run] gate_on` comes to for this run: `configured` is the key's value and
+    `gate_on` is "observed" or "corrected". `calibration` is the report when it is for
+    this judge, and `note` says why the correction cannot apply, when it cannot."""
+
+    configured: str
+    gate_on: str
+    calibration: Calibration | None
+    note: str | None
+
+    @property
+    def fell_back(self) -> bool:
+        return self.configured == "auto" and self.gate_on == "observed"
+
+
+# "auto" gates on the corrected rate when the report is for this judge and the judge is
+# strong enough on the whole set to correct; either failing, it gates on the observed
+# passes. The explicit values are taken as written, whatever the report says.
+def resolve_gate(config: Config) -> GateResolution:
+    path = config.report_path / CALIBRATION_REPORT
+    found = load_calibration(path)
+    calibration: Calibration | None = None
+    if found is None:
+        note: str | None = f"no calibration report at {path}"
+    elif (mismatch := calibration_mismatch(found, config)) is not None:
+        note = f"{found.path} is not for this judge: {mismatch}"
+    else:
+        calibration = found
+        refused = refusal(judge_error(found.cases, "all"), found.accuracy)
+        note = None if refused is None else f"judge too weak to correct ({refused})"
+    configured = config.run.gate_on
+    gate_on = configured
+    if configured == "auto":
+        gate_on = "observed" if note else "corrected"
+    return GateResolution(configured, gate_on, calibration, note)
+
+
 def rogan_gladen(observed: float, sensitivity: float, specificity: float) -> float | None:
     youden = sensitivity + specificity - 1
     if youden <= 0:
@@ -228,32 +278,20 @@ def correct(
         return None
     cases, scope = calibration.cases_for(criterion, minimum)
     error = judge_error(cases, scope)
-    if error is None:
+    refused = refusal(error, calibration.accuracy)
+    if refused is not None:
         return Corrected(
             None,
             None,
-            0.0,
-            0.0,
+            error.sensitivity if error else 0.0,
+            error.specificity if error else 0.0,
             len(cases),
             scope,
             seed,
             calibration.accuracy,
-            "the calibration set needs both labelled passes and labelled fails",
+            refused,
         )
-    if not error.usable:
-        return Corrected(
-            None,
-            None,
-            error.sensitivity,
-            error.specificity,
-            error.cases,
-            scope,
-            seed,
-            calibration.accuracy,
-            f"sensitivity {error.sensitivity:.2f} + specificity {error.specificity:.2f} - 1 "
-            f"= {error.youden:.2f}, below {MIN_YOUDEN}; calibration accuracy was "
-            f"{calibration.accuracy:.2f}",
-        )
+    assert error is not None
     observed = passes / judged
     rate = rogan_gladen(observed, error.sensitivity, error.specificity)
     assert rate is not None

@@ -67,7 +67,6 @@ def test_parse_file() -> None:
     ]
     assert late.checks[2].value == r"\b[0-9]+(am|pm)\b"
     assert scenarios[0].checks == []
-    assert late.threshold is None
     assert late.tags == ["informal"]
     assert scenarios[2].criterion == "other"
 

@@ -169,6 +169,7 @@ def test_build_report_structure(tmp_path: Path) -> None:
         "required_passes": 19,
         "threshold": 0.7639,
         "gate_on": "observed",
+        "gate_on_configured": "auto",
         "early_stop": True,
     }
     assert report["calibration"] is None

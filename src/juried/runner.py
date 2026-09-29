@@ -14,14 +14,7 @@ import httpx
 from juried.cache import Cache
 from juried.checks import CheckError, CheckOutcome, failed, run_checks
 from juried.config import Config
-from juried.correction import (
-    CALIBRATION_REPORT,
-    Calibration,
-    Corrected,
-    calibration_mismatch,
-    correct,
-    load_calibration,
-)
+from juried.correction import Calibration, Corrected, correct, resolve_gate
 from juried.criteria import Criterion
 from juried.judge.base import Provider, ProviderError, Verdict, agreement, majority_verdict
 from juried.pricing import TargetUsage, Usage
@@ -447,16 +440,13 @@ class Runner:
         self.cache = cache
         self.environ = environ
         self.target_factory = target_factory or self._http_target
-        # The calibration report for this judge, if one exists, prices its verdicts.
-        self.calibration: Calibration | None = None
-        self.calibration_note: str | None = None
-        found = load_calibration(config.report_path / CALIBRATION_REPORT)
-        if found is not None:
-            mismatch = calibration_mismatch(found, config)
-            if mismatch is None:
-                self.calibration = found
-            else:
-                self.calibration_note = f"{found.path} is not for this judge: {mismatch}"
+        # The calibration report for this judge, if one exists, prices its verdicts, and
+        # decides what gate_on = "auto" comes to.
+        resolution = resolve_gate(config)
+        self.calibration: Calibration | None = resolution.calibration
+        self.calibration_note: str | None = resolution.note
+        self.gate_on: str = resolution.gate_on
+        self.gate_fell_back: bool = resolution.fell_back
 
     def _http_target(self, client: httpx.AsyncClient) -> Target:
         return HttpTarget(self.config.target, client, environ=self.environ)
@@ -465,7 +455,7 @@ class Runner:
         return scenario.runs if scenario.runs is not None else self.config.run.runs
 
     def gate_for(self, scenario: Scenario) -> Gate:
-        return self.config.run.gate(self.runs_for(scenario), scenario.misses, scenario.threshold)
+        return self.config.run.gate(self.runs_for(scenario), scenario.misses)
 
     def run(self, scenario: Scenario, criterion: Criterion) -> ScenarioResult:
         return asyncio.run(self.run_async(scenario, criterion))
@@ -491,7 +481,7 @@ class Runner:
     ) -> ScenarioResult:
         gate = self.gate_for(scenario)
         runs = gate.runs
-        stopper = Stopper(gate, self.config.run.early_stop_applies)
+        stopper = Stopper(gate, self.config.run.early_stop_for(self.gate_on))
         try:
             # A task group cancels the remaining attempts when one raises, so a
             # configuration error stops the scenario instead of leaving tasks dangling.
@@ -510,7 +500,7 @@ class Runner:
             criterion,
             gate,
             records,
-            self.config.run.gate_on,
+            self.gate_on,
             early_stopped=stopper.decided and len(records) < runs,
         )
         if self.calibration is not None:

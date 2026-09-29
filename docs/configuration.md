@@ -25,6 +25,9 @@ output_price = 10.0
 [run]
 runs = 20          # attempts per scenario
 misses = 1         # failed attempts a scenario may have and still pass
+gate_on = "auto"   # "auto": judge-corrected rate when a calibration report is usable, else observed
+                   # "corrected": always the corrected rate; no usable report is an error
+                   # "observed": always the observed passes; the corrected rate is only shown
 concurrency = 4    # requests in flight to the target, across all scenarios
 # concurrency_scope = "global"   # under pytest-xdist, share the caps across workers
 # early_stop = true              # stop a scenario once its gate is decided
@@ -41,7 +44,8 @@ concurrency = 4           # requests in flight to the judge, across all scenario
 failed attempts exceed `misses`, won when the passes reach `runs - misses`. Attempts in
 flight finish and count; the rest are never sent. `juried run --no-early-stop` or
 `early_stop = false` runs every planned attempt, which `juried compare` and calibration
-set building want. Under `gate_on = "corrected"` early stopping is always off, because
+set building want. While the gate is on the corrected rate, under `gate_on = "corrected"`
+or under `"auto"` with a usable calibration report, early stopping is always off, because
 the corrected interval needs every attempt, and the run header says so. The asymmetry of
 the saving and what a stopped scenario's rate means are in [runs.md](runs.md#early-stopping).
 

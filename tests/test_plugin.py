@@ -447,9 +447,14 @@ def test_corrected_rate_is_reported_when_a_calibration_report_matches(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
     write_project(pytester, fake_bot_url)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(
+        text.replace("misses = 0", 'misses = 0\ngate_on = "observed"')
+    )
     write_calibration(pytester, CALIBRATION_REPORT_STUB)
     result = pytester.runpytest("-v", "-k", "hours")
     result.assert_outcomes(passed=1)
+    assert "gate on" not in result.stdout.str()
     # Observed 4/4 = 100%; sensitivity 23/24, specificity 14/16: (1 + 0.875 - 1) / 0.833 = 100%.
     result.stdout.fnmatch_lines(
         [
@@ -468,6 +473,8 @@ def test_corrected_rate_is_reported_when_a_calibration_report_matches(
     assert scenario["calibration_scope"] == "criterion"
     assert scenario["bootstrap_seed"] == 20260913
     assert scenario["gate_on"] == "observed"
+    assert report["defaults"]["gate_on"] == "observed"
+    assert report["defaults"]["gate_on_configured"] == "observed"
     assert report["calibration"]["model"] == "stub"
     assert report["calibration"]["cases"] == 40
     html = (pytester.path / "reports" / "juried-report.html").read_text()
@@ -494,7 +501,11 @@ def test_gate_on_corrected_uses_the_corrected_lower_bound(
     missing = pytester.runpytest("-k", "hours")
     assert missing.ret == pytest.ExitCode.USAGE_ERROR
     missing.stderr.fnmatch_lines(
-        ['*gate_on = "corrected" needs a calibration report for this judge*']
+        [
+            '*gate_on = "corrected" needs a usable calibration report for this judge: no '
+            "calibration report at *juried-calibration.json. Run 'juried calibrate' with "
+            'labelled cases, or set gate_on = "auto"*'
+        ]
     )
     write_calibration(pytester, CALIBRATION_REPORT_STUB)
     result = pytester.runpytest("-v", "-k", "hours")
@@ -512,24 +523,133 @@ def test_gate_on_corrected_uses_the_corrected_lower_bound(
     report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
     scenario = report["criteria"][0]["scenarios"][0]
     assert scenario["gate_on"] == "corrected" and scenario["status"] == "upheld"
+    assert report["defaults"]["gate_on"] == "corrected"
+    assert report["defaults"]["gate_on_configured"] == "corrected"
     assert (
         "gated on the judge-corrected rate"
         in (pytester.path / "reports" / "juried-report.html").read_text()
     )
-    # A judge too weak to correct falls back to the observed gate and says so.
-    weak = dict(CALIBRATION_REPORT_STUB)
-    weak["cases"] = (
-        [{"criterion": "opening-hours", "human": "pass", "judge": "pass"}] * 7
-        + [{"criterion": "opening-hours", "human": "pass", "judge": "fail"}] * 3
-        + [{"criterion": "opening-hours", "human": "fail", "judge": "fail"}] * 7
-        + [{"criterion": "opening-hours", "human": "fail", "judge": "pass"}] * 3
+    # A judge too weak to correct on the whole set is nothing to gate by, so the strict
+    # value refuses to run.
+    write_calibration(pytester, WEAK_CALIBRATION_REPORT)
+    refused = pytester.runpytest("-v", "-k", "hours")
+    assert refused.ret == pytest.ExitCode.USAGE_ERROR
+    refused.stderr.fnmatch_lines(
+        [
+            '*gate_on = "corrected" needs a usable calibration report for this judge: judge too '
+            "weak to correct (sensitivity 0.70 + specificity 0.70 - 1 = 0.40, below 0.5*"
+        ]
     )
-    write_calibration(pytester, weak)
+    # Too weak on the scenario's own criterion alone falls back to the observed gate for
+    # that scenario and says so.
+    write_calibration(pytester, WEAK_ON_HOURS_CALIBRATION_REPORT)
     fallback = pytester.runpytest("-v", "-k", "hours")
     fallback.assert_outcomes(passed=1)
     fallback.stdout.fnmatch_lines(
         ["*judge too weak to correct (sensitivity 0.70 + specificity 0.70*"]
     )
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    scenario = report["criteria"][0]["scenarios"][0]
+    assert scenario["gate_on"] == "observed" and report["defaults"]["gate_on"] == "corrected"
+
+
+# Sensitivity and specificity of 0.70 on the only criterion: Youden 0.40, below the 0.5 floor.
+WEAK_CASES = (
+    [{"criterion": "opening-hours", "human": "pass", "judge": "pass"}] * 7
+    + [{"criterion": "opening-hours", "human": "pass", "judge": "fail"}] * 3
+    + [{"criterion": "opening-hours", "human": "fail", "judge": "fail"}] * 7
+    + [{"criterion": "opening-hours", "human": "fail", "judge": "pass"}] * 3
+)
+WEAK_CALIBRATION_REPORT = {**CALIBRATION_REPORT_STUB, "cases": WEAK_CASES}
+# The same twenty plus thirty the judge got right on another criterion: usable on the whole
+# set (0.88 each way), too weak on opening-hours alone.
+WEAK_ON_HOURS_CALIBRATION_REPORT = {
+    **CALIBRATION_REPORT_STUB,
+    "cases": WEAK_CASES
+    + [{"criterion": "refund-policy", "human": "pass", "judge": "pass"}] * 15
+    + [{"criterion": "refund-policy", "human": "fail", "judge": "fail"}] * 15,
+}
+
+
+def test_auto_gate_follows_the_calibration_report(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    # No report: observed, and the header and summary both say so and name the fix.
+    write_project(pytester, fake_bot_url, runs=10)
+    text = (pytester.path / "juried.toml").read_text()
+    (pytester.path / "juried.toml").write_text(text.replace("misses = 0", "misses = 3"))
+    absent = pytester.runpytest("-v", "-k", "hours")
+    absent.assert_outcomes(passed=1)
+    absent.stdout.fnmatch_lines(
+        [
+            "juried: gate on observed passes (auto: no calibration report at "
+            "*juried-calibration.json; run 'juried calibrate' with labelled cases to gate on "
+            "the judge-corrected rate)",
+            "juried: early stop on (a scenario ends once its gate is decided)",
+            "juried: warning: gate on observed passes because no calibration report at "
+            "*juried-calibration.json; run 'juried calibrate' with labelled cases to gate on "
+            "the judge-corrected rate",
+        ]
+    )
+    assert "no corrected rate" not in absent.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["gate_on"] == "observed"
+    assert report["defaults"]["gate_on_configured"] == "auto"
+    assert report["defaults"]["early_stop"] is True
+    # A report for another judge: still observed, naming the judge it calibrated.
+    write_calibration(
+        pytester, {**CALIBRATION_REPORT_STUB, "judge": {"provider": "openai", "model": "gpt-4.1"}}
+    )
+    other = pytester.runpytest("-v", "-k", "hours")
+    other.assert_outcomes(passed=1)
+    other.stdout.fnmatch_lines(
+        [
+            "juried: gate on observed passes (auto: *juried-calibration.json is not for this "
+            "judge: it calibrated openai/gpt-4.1, not stub/stub; run 'juried calibrate'*",
+            "juried: warning: gate on observed passes because *juried-calibration.json is not "
+            "for this judge: it calibrated openai/gpt-4.1, not stub/stub; run 'juried "
+            "calibrate' with labelled cases to gate on the judge-corrected rate",
+        ]
+    )
+    # A judge too weak to correct: observed, with the existing refusal as the reason.
+    write_calibration(pytester, WEAK_CALIBRATION_REPORT)
+    weak = pytester.runpytest("-v", "-k", "hours")
+    weak.assert_outcomes(passed=1)
+    weak.stdout.fnmatch_lines(
+        [
+            "juried: gate on observed passes (auto: judge too weak to correct (sensitivity 0.70 "
+            "+ specificity 0.70 - 1 = 0.40, below 0.5; calibration accuracy was 0.90); run "
+            "'juried calibrate'*",
+            "*PASSED 10/10 (needs 7, *; judge too weak to correct (sensitivity 0.70*",
+            "juried: warning: gate on observed passes because judge too weak to correct *",
+        ]
+    )
+    # A usable report for this judge: corrected, with early stopping off.
+    write_calibration(pytester, CALIBRATION_REPORT_STUB)
+    corrected = pytester.runpytest("-v", "-k", "hours")
+    corrected.assert_outcomes(passed=1)
+    corrected.stdout.re_match_lines(
+        [
+            r"juried: gate on judge-corrected rate \(the corrected interval's lower bound must "
+            r"meet 70%\)",
+            r"juried: early stop off \(gate_on = corrected needs full sampling\)",
+        ]
+    )
+    assert "warning: gate on observed" not in corrected.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["gate_on"] == "corrected"
+    assert report["defaults"]["gate_on_configured"] == "auto"
+    assert report["defaults"]["early_stop"] is False
+    assert report["criteria"][0]["scenarios"][0]["gate_on"] == "corrected"
+    # The explicit values ignore the report either way.
+    observed = pytester.runpytest("-v", "-k", "hours", "--juried-gate-on=observed")
+    observed.assert_outcomes(passed=1)
+    observed.stdout.fnmatch_lines(["*PASSED 10/10 (needs 7, *; corrected 100% (*"])
+    assert "gate on" not in observed.stdout.str()
+    report = json.loads((pytester.path / "reports" / "juried-report.json").read_text())
+    assert report["defaults"]["gate_on"] == "observed"
+    assert report["defaults"]["gate_on_configured"] == "observed"
+    assert report["defaults"]["early_stop"] is True
 
 
 def test_mismatched_calibration_report_is_warned_about(
@@ -593,28 +713,44 @@ def test_xdist_workers_share_the_concurrency_caps(
     assert "per worker" not in plain.stdout.str()
 
 
-def test_threshold_is_derived_and_deprecated(pytester: pytest.Pytester, fake_bot_url: str) -> None:
+def test_threshold_is_rejected_with_the_file_named(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
     write_project(pytester, fake_bot_url)
-    result = pytester.runpytest("--juried-threshold=0.1", "-v", "-k", "hours")
-    result.assert_outcomes(passed=1)
-    result.stdout.re_match_lines(
-        [
-            r"juried: config .*, runs 4, misses 2, cache verdicts only.*",
-            r"juried: threshold is deprecated and is removed in 0.4: threshold 0.1 with 4 runs "
-            r"tolerates 2 misses, so set misses = 2 instead",
-            r"juried: gate needs 2/4 passes \(2 misses tolerated\)",
-        ]
-    )
+    flag = pytester.runpytest("--juried-threshold=0.1", "-k", "hours")
+    assert flag.ret == pytest.ExitCode.USAGE_ERROR
+    flag.stderr.fnmatch_lines(["*unrecognized arguments: --juried-threshold=0.1*"])
     text = (pytester.path / "juried.toml").read_text().replace("misses = 0", "threshold = 0.5")
     (pytester.path / "juried.toml").write_text(text)
     from_file = pytester.runpytest("-k", "hours")
-    from_file.assert_outcomes(passed=1)
-    from_file.stdout.re_match_lines([r"juried: threshold is deprecated.*set misses = 0 instead"])
-    # The command line gate wins outright, so it cannot disagree with the file's threshold.
-    overridden = pytester.runpytest("--juried-misses=1", "-k", "hours")
-    overridden.assert_outcomes(passed=1)
-    assert "threshold is deprecated" not in overridden.stdout.str()
-    overridden.stdout.re_match_lines([r"juried: gate needs 3/4 passes \(1 miss tolerated\)"])
+    assert from_file.ret == pytest.ExitCode.USAGE_ERROR
+    from_file.stderr.fnmatch_lines(
+        [
+            "*juried: juried.toml is invalid:*",
+            "*run.threshold was removed in 0.4; set misses instead, the failed attempts a "
+            "scenario may have and still pass*",
+        ]
+    )
+    (pytester.path / "juried.toml").write_text(text.replace("threshold = 0.5", "misses = 0"))
+    (pytester.path / "scenarios" / "c-old.yaml").write_text(
+        """
+criterion: refund-policy
+scenarios:
+  - name: Old style
+    message: What are your opening hours?
+    expected: Gives the hours including "9am".
+    runs: 6
+    threshold: 0.4
+"""
+    )
+    from_scenario = pytester.runpytest("-k", "old")
+    from_scenario.assert_outcomes(errors=1)
+    from_scenario.stdout.fnmatch_lines(
+        [
+            "*c-old.yaml: scenario 1 is invalid:*",
+            "*threshold was removed in 0.4; set misses instead*",
+        ]
+    )
 
 
 def test_per_scenario_gate_overrides(pytester: pytest.Pytester, fake_bot_url: str) -> None:
@@ -628,11 +764,6 @@ scenarios:
     expected: Gives the hours including "9am".
     runs: 6
     misses: 2
-  - name: Old style
-    message: What are your opening hours?
-    expected: Gives the hours including "9am".
-    runs: 6
-    threshold: 0.4
   - name: Only runs
     message: What are your opening hours?
     expected: Gives the hours including "9am".
@@ -640,11 +771,10 @@ scenarios:
 """
     )
     result = pytester.runpytest("-v", "-k", "flaky")
-    result.assert_outcomes(passed=3)
+    result.assert_outcomes(passed=2)
     result.stdout.fnmatch_lines(
         [
             "*tolerates-misses PASSED 6/6 (needs 4, interval *",
-            "*old-style PASSED 6/6 (needs 5, interval *",
             "*only-runs PASSED 6/6 (needs 6, interval *",
         ]
     )
@@ -652,8 +782,7 @@ scenarios:
     entries = {s["id"]: s for c in report["criteria"] for s in c["scenarios"]}
     assert entries["refund-policy-tolerates-misses"]["misses"] == 2
     assert entries["refund-policy-tolerates-misses"]["required_passes"] == 4
-    assert entries["refund-policy-old-style"]["misses"] == 1
-    assert entries["refund-policy-old-style"]["threshold"] == 0.4
+    assert entries["refund-policy-tolerates-misses"]["threshold"] == 0.3
     # Only runs set: the file's misses (0) applies at the scenario's own count.
     assert entries["refund-policy-only-runs"]["misses"] == 0
 
@@ -673,11 +802,12 @@ def test_real_judge_without_calibration_report_is_warned(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "juried: warning: no calibration report at *juried-calibration.json; these verdicts "
-            "come from anthropic/claude-sonnet-5 and nothing has checked it against human labels.*",
-            "juried: no corrected rate; run 'juried calibrate' with labelled cases to get one",
+            "juried: warning: gate on observed passes because no calibration report at "
+            "*juried-calibration.json; run 'juried calibrate' with labelled cases to gate on "
+            "the judge-corrected rate",
         ]
     )
+    assert result.stdout.str().count("juried: warning:") == 1
     write_calibration(
         pytester,
         {
@@ -689,18 +819,35 @@ def test_real_judge_without_calibration_report_is_warned(
     assert "no calibration report at" not in again.stdout.str()
     again.stdout.fnmatch_lines(
         [
-            "*warning: *juried-calibration.json is not for this judge: it calibrated "
-            "anthropic/claude-haiku-4-5, not anthropic/claude-sonnet-5"
+            "*warning: gate on observed passes because *juried-calibration.json is not for "
+            "this judge: it calibrated anthropic/claude-haiku-4-5, not anthropic/claude-sonnet-5; "
+            "run 'juried calibrate'*"
+        ]
+    )
+    # Observed by choice: no gate warning, but the missing correction is still noted once.
+    text = (
+        (pytester.path / "juried.toml").read_text().replace("[run]", '[run]\ngate_on = "observed"')
+    )
+    (pytester.path / "juried.toml").write_text(text)
+    chosen = pytester.runpytest("-k", "hours")
+    assert "gate on observed passes" not in chosen.stdout.str()
+    chosen.stdout.fnmatch_lines(
+        [
+            "juried: warning: no corrected rate: *juried-calibration.json is not for this judge: "
+            "it calibrated anthropic/claude-haiku-4-5, not anthropic/claude-sonnet-5; run "
+            "'juried calibrate' with labelled cases to get one"
         ]
     )
 
 
-def test_stub_judge_is_not_nagged_about_calibration(
+def test_stub_judge_is_told_what_the_gate_resolved_to(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
     write_project(pytester, fake_bot_url)
     result = pytester.runpytest("-k", "hours")
-    assert "no calibration report" not in result.stdout.str()
+    result.stdout.fnmatch_lines(
+        ["juried: warning: gate on observed passes because no calibration report at *"]
+    )
 
 
 def test_votes_switch_verdict_caching_off(pytester: pytest.Pytester, fake_bot_url: str) -> None:
@@ -742,14 +889,6 @@ def test_impossible_gates_are_rejected_before_any_request(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
     write_project(pytester, fake_bot_url)
-    unattainable = pytester.runpytest("--juried-threshold=0.9", "-k", "hours")
-    assert unattainable.ret == pytest.ExitCode.USAGE_ERROR
-    unattainable.stderr.fnmatch_lines(
-        [
-            "*juried: run: threshold 0.90 can never be met with 4 runs, whose best possible lower "
-            "bound is 0.51; threshold is deprecated, set misses instead"
-        ]
-    )
     always_passes = pytester.runpytest("--juried-misses=4", "-k", "hours")
     assert always_passes.ret == pytest.ExitCode.USAGE_ERROR
     always_passes.stderr.fnmatch_lines(

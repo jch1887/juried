@@ -81,6 +81,11 @@ set changes. `reports/` is ignored by the starter `.gitignore`, so add the file 
 git add -f reports/juried-calibration.json
 ```
 
+From then on the default `gate_on = "auto"` gates every run on the judge-corrected rate
+and runs every planned attempt; until the report exists, or if it is for another judge or
+too weak to correct, the gate is on the observed passes and the run says so. Set
+`gate_on = "observed"` under `[run]` to keep the gate on the passes regardless.
+
 ## Reference set
 
 `examples/faq-bot/calibration/` holds one file per criterion plus six cases for the

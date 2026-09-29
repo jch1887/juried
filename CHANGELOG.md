@@ -7,8 +7,50 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-29
+
+### Breaking changes
+
+- `threshold` is gone, as 0.3 announced. A `juried.toml` or a scenario file that still sets
+  it, or a `JURIED_RUN_THRESHOLD` override, stops the run with an error that names the file
+  and says to set `misses` instead, where 0.3 derived `misses` from it and printed a notice.
+  `juried run --threshold` is no longer a juried flag, so it falls through to pytest, which
+  rejects it, and `--juried-threshold` is gone from the plugin. The JSON report and the JUnit
+  `user_properties` still carry `threshold`, the interval lower bound the gate is equivalent
+  to, as docs/stability.md promises, so `schema_version` stays at 1.
+- `[run] gate_on` defaults to `"auto"`, a new third value. The gate runs on the
+  judge-corrected interval's lower bound whenever `reports/juried-calibration.json` is
+  usable, that is, it is for the configured judge (same provider and model, and the same
+  temperature and prompt version where the report records them) and the judge is not too
+  weak to correct on the whole set; otherwise it runs on the observed passes, the header
+  says `gate on observed passes (auto: ...)` with the reason, and the summary repeats it as
+  a warning naming the command that fixes it. A 0.3 project that already has a calibration
+  report for its judge is therefore gated on the corrected rate from this release on, with
+  early stopping off because the corrected interval needs every attempt: the run makes
+  every planned attempt where 0.3 stopped a scenario once its gate was decided, so it costs
+  more, and a scenario that passed on its observed count may now fail, since the corrected
+  lower bound has to meet the rate `misses` implies. `gate_on = "observed"` restores the
+  0.3 behaviour exactly: the gate on the observed passes, early stopping as configured, and
+  the corrected rate reported beside it.
+- `gate_on = "corrected"` is strict throughout. A report whose judge is too weak to correct
+  on the whole set is refused at startup, as a missing report or one for another judge
+  already was, where 0.3 fell back to the observed passes scenario by scenario. A criterion
+  whose own cases are enough to use but too weak still falls back for that scenario alone,
+  and the gate failure block says so.
+- `juried compare --tolerance`, the deprecated alias for `--min-effect`, is gone.
+- The end of run warning about a missing calibration report is replaced by the gate
+  warning above, printed once and for every judge, the stub included; a run with
+  `gate_on = "observed"` and no usable report says `no corrected rate` once, with the
+  reason, instead of two lines.
+
 ### Added
 
+- The JSON report's `defaults` carry `gate_on_configured`, the value in the file, beside
+  `gate_on`, which is now what the run resolved it to, `observed` or `corrected`; `early_stop`
+  there follows the resolved value. `juried run --gate-on` and `JURIED_RUN_GATE_ON` take
+  `auto`, `observed` or `corrected`. `juried run --dry-run` and `juried estimate` print a
+  `gate on` line and plan early stopping against the resolved value, so a plan whose gate
+  resolves to the corrected rate is the full sample.
 - A "Running in CI" section in the README with a complete GitHub Actions job: it installs
   juried, runs every scenario with `--no-early-stop` against a staging URL held in a
   secret, keeps `reports/` as an artifact, fetches `juried-report.json` from the last
@@ -30,6 +72,9 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ### Changed
 
+- The README, docs/runs.md, docs/judge.md, docs/calibration.md, docs/configuration.md,
+  `.env.example`, the example project's `juried.toml` and the config `juried init` writes
+  describe the three `gate_on` values and the gate that follows the calibration report.
 - docs/releasing.md pulls `main` and checks the version before tagging, since a tag on the
   commit before the version bump rebuilds the previous release without any error.
 - The README's version badge reads the latest GitHub release rather than PyPI, since
@@ -355,7 +400,8 @@ change between minor versions; every such change is listed under "Breaking chang
 - The README's claim that nothing but keys is ever read from disk (#24).
 - Concurrency tests no longer assert wall clock time, which failed on slow CI runners (#29).
 
-[Unreleased]: https://github.com/jch1887/juried/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/jch1887/juried/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jch1887/juried/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/jch1887/juried/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jch1887/juried/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/jch1887/juried/compare/v0.2.0...v0.2.1

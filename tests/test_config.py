@@ -15,7 +15,6 @@ def test_defaults(tmp_path: Path) -> None:
     config = parse_config(MINIMAL, tmp_path, environ={})
     assert config.run.runs == 20
     assert config.run.misses is None
-    assert config.run.threshold is None
     assert config.run.gate() == Gate(20, 1)
     assert config.run.concurrency == 4
     assert config.run.cache_responses is False
@@ -83,12 +82,12 @@ def test_env_overrides(tmp_path: Path) -> None:
     }
     config = parse_config(MINIMAL, tmp_path, environ=environ)
     assert config.run.runs == 3
-    assert config.run.early_stop is True and config.run.early_stop_applies
+    assert config.run.early_stop is True and config.run.early_stop_for("observed")
     assert not parse_config(
         MINIMAL, tmp_path, environ={"JURIED_RUN_EARLY_STOP": "false"}
     ).run.early_stop
     corrected = parse_config(MINIMAL + '[run]\ngate_on = "corrected"\n', tmp_path, environ={})
-    assert corrected.run.early_stop and not corrected.run.early_stop_applies
+    assert corrected.run.early_stop and not corrected.run.early_stop_for("corrected")
     assert config.cache_path == Path("/tmp/elsewhere")
     assert config.judge.model == "claude-opus-5"
     assert config.target.url == "http://override/chat"
@@ -96,25 +95,18 @@ def test_env_overrides(tmp_path: Path) -> None:
     assert config.criteria.file == Path("criteria.md")
 
 
-def test_gate_precedence_and_threshold_deprecation(tmp_path: Path) -> None:
-    derived = parse_config(MINIMAL + "[run]\nthreshold = 0.7\n", tmp_path, environ={})
-    assert derived.run.gate() == Gate(20, 1, 0.7)
-    # A scenario that sets only runs keeps the threshold rule at its own count.
-    assert derived.run.gate(50) == Gate(50, 8, 0.7)
-    assert derived.run.gate(50, misses=2) == Gate(50, 2)
-    assert derived.run.gate(50, threshold=0.5) == Gate(50, 18, 0.5)
+def test_gate_precedence_and_threshold_removal(tmp_path: Path) -> None:
     explicit = parse_config(MINIMAL + "[run]\nmisses = 3\n", tmp_path, environ={})
     assert explicit.run.gate() == Gate(20, 3)
     assert explicit.run.gate(50) == Gate(50, 3)
     assert explicit.run.gate(4, misses=0) == Gate(4, 0)
     env = parse_config(MINIMAL, tmp_path, environ={"JURIED_RUN_MISSES": "0"})
     assert env.run.gate() == Gate(20, 0)
-    agreeing = parse_config(MINIMAL + "[run]\nmisses = 1\nthreshold = 0.7\n", tmp_path, environ={})
-    assert agreeing.run.gate() == Gate(20, 1, 0.7)
-    with pytest.raises(ConfigError, match=r"misses = 3 and threshold = 0.7 disagree"):
-        parse_config(MINIMAL + "[run]\nmisses = 3\nthreshold = 0.7\n", tmp_path, environ={})
-    with pytest.raises(ConfigError, match=r"threshold 0.90 can never be met with 10 runs"):
-        parse_config(MINIMAL + "[run]\nruns = 10\nthreshold = 0.9\n", tmp_path, environ={})
+    removed = r"juried.toml is invalid:(.|\n)*run.threshold was removed in 0.4; set misses instead"
+    with pytest.raises(ConfigError, match=removed):
+        parse_config(MINIMAL + "[run]\nthreshold = 0.7\n", tmp_path, environ={})
+    with pytest.raises(ConfigError, match=removed):
+        parse_config(MINIMAL, tmp_path, environ={"JURIED_RUN_THRESHOLD": "0.7"})
     with pytest.raises(ConfigError, match=r"misses = 2 is not below runs = 2"):
         parse_config(MINIMAL + "[run]\nruns = 2\nmisses = 2\n", tmp_path, environ={})
     # A smoke test with one run gets a gate that can fail, rather than an error.
@@ -125,11 +117,13 @@ def test_gate_precedence_and_threshold_deprecation(tmp_path: Path) -> None:
 
 
 def test_command_line_gate_replaces_the_file_gate(tmp_path: Path) -> None:
-    run = parse_config(MINIMAL + "[run]\nthreshold = 0.7\n", tmp_path, environ={}).run
+    run = parse_config(MINIMAL + "[run]\nmisses = 2\n", tmp_path, environ={}).run
     assert run.with_overrides(misses=3).gate() == Gate(20, 3)
-    assert run.with_overrides(runs=50).gate() == Gate(50, 8, 0.7)
-    assert run.with_overrides(runs=10, threshold=0.5).gate() == Gate(10, 1, 0.5)
-    assert run.with_overrides().gate() == Gate(20, 1, 0.7)
+    assert run.with_overrides(runs=50).gate() == Gate(50, 2)
+    assert run.with_overrides().gate() == Gate(20, 2)
+    assert run.with_overrides(gate_on="observed").gate_on == "observed"
+    with pytest.raises(ConfigError, match="Input should be 'auto', 'observed' or 'corrected'"):
+        run.with_overrides(gate_on="judge")
     with pytest.raises(ConfigError, match=r"^run: misses = 5 is not below runs = 5"):
         run.with_overrides(runs=5, misses=5)
     with pytest.raises(ConfigError, match=r"greater than or equal to 1"):
@@ -157,8 +151,10 @@ def test_generation_settings_do_not_borrow_the_judge_temperature(tmp_path: Path)
 
 def test_gate_on_and_min_calibration_cases(tmp_path: Path) -> None:
     plain = parse_config(MINIMAL, tmp_path, environ={})
-    assert plain.run.gate_on == "observed"
+    assert plain.run.gate_on == "auto"
     assert plain.judge.min_calibration_cases == 10
+    observed = parse_config(MINIMAL, tmp_path, environ={"JURIED_RUN_GATE_ON": "observed"})
+    assert observed.run.gate_on == "observed"
     corrected = parse_config(
         MINIMAL + '[run]\ngate_on = "corrected"\n[judge]\nmin_calibration_cases = 5\n', tmp_path
     )

@@ -102,6 +102,7 @@ response_path = "choices.0.message.content"
 [run]
 runs = 20          # attempts per scenario
 misses = 1         # failed attempts a scenario may have and still pass
+gate_on = "auto"   # judge-corrected rate when a calibration report is usable, else observed
 concurrency = 4    # requests in flight to the target, across all scenarios
 
 [judge]
@@ -121,7 +122,8 @@ when no more than `misses` of those attempts fail, so with the defaults, `runs =
 `misses = 1`, it needs 19 passes out of 20. Set `misses = 0` to require every attempt to
 pass, or raise `runs` and `misses` together to tolerate the same miss rate on more evidence.
 A scenario stops as soon as its gate is decided, so a bad deploy fails after `misses + 1`
-attempts rather than all of them; `--no-early-stop` runs every attempt.
+attempts rather than all of them; `--no-early-stop` runs every attempt, and so does a gate
+on the judge-corrected rate, below, which needs the whole sample.
 
 ```toml
 [run]
@@ -131,8 +133,9 @@ misses = 3    # gate needs 47/50 passes
 
 juried prints what the gate needs at the top of every run
 (`juried: gate needs 19/20 passes (1 miss tolerated)`), repeats it in every gate failure
-and shows it in the report. `threshold`, the gate setting before 0.3, still works for this
-release: juried derives `misses` from it and prints a notice naming the value to set instead.
+and shows it in the report. `threshold`, the gate setting before 0.3, is no longer accepted:
+a config or scenario file that sets it stops the run with a message naming the file and
+saying to set `misses` instead.
 Failing gates, errors, concurrency and caching are in [docs/runs.md](docs/runs.md); what a
 run costs and the dry run in [docs/costs.md](docs/costs.md).
 
@@ -163,10 +166,14 @@ Each scenario then reports:
 18/20 judged pass; corrected 92% (71–100%), judge false pass 6%, false fail 3%
 ```
 
-In 0.3 the corrected rate is reported and the gate still runs on the observed passes,
-unless you set `gate_on = "corrected"` under `[run]`, which becomes the default in the
-release after. How the rates are taken per criterion, the bootstrap behind the interval,
-and `gate_on` are in [docs/judge.md](docs/judge.md).
+The gate follows the correction. Under the default, `gate_on = "auto"` under `[run]`, a
+run gates on the corrected interval's lower bound whenever a calibration report for the
+configured judge is usable, and on the observed passes otherwise, saying which in the
+header and, when it had to fall back, in a warning at the end that names why and the
+command that fixes it. `gate_on = "corrected"` insists on the correction and refuses to
+run without a usable report; `gate_on = "observed"` gates on the passes alone, with the
+corrected rate still reported beside them. How the rates are taken per criterion, the
+bootstrap behind the interval, and the three values are in [docs/judge.md](docs/judge.md).
 
 ## Trusting the judge
 

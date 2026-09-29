@@ -14,7 +14,6 @@ from juried.criteria import Criterion
 from juried.judge import Provider, ProviderError, StubProvider, Usage, Verdict
 from juried.runner import Runner, ScenarioResult, Session
 from juried.scenarios import Scenario, Turn
-from juried.stats import Gate
 from juried.targets.base import TargetResponse
 from juried.targets.http import TargetConfigError
 from juried.transport import TransportFailure
@@ -165,11 +164,6 @@ def test_per_scenario_overrides(tmp_path: Path) -> None:
     stricter = make_runner(tmp_path, target).run(scenario(runs=4, misses=1), CRITERION)
     assert not stricter.gate_passed
     assert stricter.status == "failed"
-    # A per scenario threshold is still honoured, derived at the scenario's run count.
-    legacy = make_runner(tmp_path, target).run(scenario(runs=4, threshold=0.1), CRITERION)
-    assert legacy.gate == Gate(4, 2, 0.1)
-    assert legacy.threshold == 0.1
-    assert legacy.gate_passed
 
 
 class CountingStub(StubProvider):
@@ -871,8 +865,8 @@ def test_gate_on_corrected_forces_full_sampling(tmp_path: Path) -> None:
     runner = make_runner(
         tmp_path, target, runs=20, concurrency=1, run_extra='gate_on = "corrected"\n'
     )
-    assert not runner.config.run.early_stop_applies
-    assert runner.config.run.describe_early_stop() == (
+    assert not runner.config.run.early_stop_for(runner.gate_on)
+    assert runner.config.run.describe_early_stop(runner.gate_on) == (
         "early stop off (gate_on = corrected needs full sampling)"
     )
     result = runner.run(scenario(), CRITERION)

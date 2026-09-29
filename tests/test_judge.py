@@ -1,10 +1,12 @@
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
+from juried.config import ConfigError, parse_config
 from juried.criteria import Criterion
 from juried.judge import ProviderError, StubProvider, Usage, Verdict, build_provider
 from juried.judge.anthropic import AnthropicProvider
@@ -447,3 +449,94 @@ def test_openai_bad_generation_is_provider_error(monkeypatch: pytest.MonkeyPatch
     )
     with pytest.raises(ProviderError, match="invalid scenario"):
         run(provider.generate(CRITERION, 2))
+
+
+PLUGIN_SOURCE = """
+from juried.judge.base import Provider, Verdict
+
+
+class PluginProvider(Provider):
+    name = "fake"
+
+    def __init__(self, model, temperature, max_tokens, base_url=None, api_key_env=None):
+        self.model = model
+        self.temperature = temperature
+        self.args = (max_tokens, base_url, api_key_env)
+
+    def fingerprint(self):
+        return f"fake:{self.model}"
+
+    async def judge(self, criterion, scenario, response_text, transcript=()):
+        return Verdict(True, "plugin says so", self.model, Verdict.now())
+
+    async def generate(self, criterion, count, adversarial=False):
+        return []
+
+
+class NotAProvider:
+    def __init__(self, *args):
+        pass
+
+
+class HalfProvider(Provider):
+    name = "half"
+
+    def __init__(self, *args):
+        pass
+
+    def fingerprint(self):
+        return "half"
+"""
+
+
+def install_plugin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: dict[str, str]
+) -> None:
+    """Write a distribution to tmp_path that registers `entries` under juried.providers."""
+    module = f"plugin_{tmp_path.name.lower()}"
+    (tmp_path / f"{module}.py").write_text(PLUGIN_SOURCE)
+    dist = tmp_path / f"{module}-0.1.dist-info"
+    dist.mkdir()
+    (dist / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {module}\nVersion: 0.1\n")
+    lines = [f"{name} = {module}:{target}" for name, target in entries.items()]
+    (dist / "entry_points.txt").write_text("[juried.providers]\n" + "\n".join(lines) + "\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def test_plugin_provider_is_found_and_built_like_a_built_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_plugin(tmp_path, monkeypatch, {"fake": "PluginProvider", "stub": "PluginProvider"})
+    provider = build_provider("fake", "m", 0.5, 256, "http://h/v1", "OTHER_KEY")
+    assert type(provider).__name__ == "PluginProvider"
+    assert (provider.name, provider.model, provider.temperature) == ("fake", "m", 0.5)
+    assert vars(provider)["args"] == (256, "http://h/v1", "OTHER_KEY")
+    assert run(provider.judge(CRITERION, SCENARIO, "anything")).reason == "plugin says so"
+    # A plugin registered under a built in name never shadows it.
+    assert isinstance(build_provider("stub", "x"), StubProvider)
+    config = parse_config(
+        '[target]\nurl = "http://t"\n[judge]\nprovider = "fake"\nmodel = "m"\n',
+        tmp_path,
+        environ={},
+    )
+    assert (config.judge.provider, config.generate_provider) == ("fake", "fake")
+
+
+def test_unknown_provider_without_a_plugin_is_still_an_error() -> None:
+    with pytest.raises(ProviderError, match="unknown provider 'nope'"):
+        build_provider("nope", "m")
+
+
+def test_plugin_that_is_not_a_provider_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_plugin(
+        tmp_path, monkeypatch, {"plain": "NotAProvider", "half": "HalfProvider", "gone": "Missing"}
+    )
+    with pytest.raises(ConfigError, match=r"provider 'plain' loads plugin_\w+\.NotAProvider") as e:
+        build_provider("plain", "m")
+    assert "does not subclass juried.judge.Provider" in str(e.value)
+    with pytest.raises(ConfigError, match="HalfProvider, which does not define generate, judge"):
+        build_provider("half", "m")
+    with pytest.raises(ConfigError, match="provider 'gone' could not be loaded from"):
+        build_provider("gone", "m")

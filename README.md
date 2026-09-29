@@ -105,7 +105,7 @@ misses = 1         # failed attempts a scenario may have and still pass
 concurrency = 4    # requests in flight to the target, across all scenarios
 
 [judge]
-provider = "anthropic"    # anthropic, openai or stub
+provider = "anthropic"    # anthropic, openai, stub or an installed plugin
 model = "claude-sonnet-5" # pinned and recorded with every verdict
 ```
 
@@ -292,7 +292,8 @@ shows, are in [docs/runs.md](docs/runs.md#the-report).
 Not there yet, and shaped so they can be added without changing the scenario format:
 
 - A `Target` that drives a UI rather than an HTTP endpoint.
-- Further `Provider` implementations for other judges.
+- Further judges. `Provider` implementations can now be added as plugins through the
+  `juried.providers` entry point group; see [docs/judge.md](docs/judge.md#adding-a-provider).
 
 Out of scope, because juried is a gate and not a platform: RAG metrics such as faithfulness
 and context recall (Ragas), graded rubric scores (DeepEval), and tracing, observability

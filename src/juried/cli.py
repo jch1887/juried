@@ -121,7 +121,8 @@ report_dir = "reports"
 
 [judge]
 # "anthropic" reads ANTHROPIC_API_KEY, "openai" reads OPENAI_API_KEY, "stub" needs
-# no key and passes when the response contains every "quoted phrase" in expected.
+# no key and passes when the response contains every "quoted phrase" in expected. Any
+# other name is looked up among installed provider plugins.
 provider = "anthropic"
 model = "claude-sonnet-5"
 # Any OpenAI compatible endpoint (Ollama, vLLM, LM Studio, OpenRouter, Azure OpenAI with

@@ -110,3 +110,29 @@ stays on the observed passes in 0.3; set `gate_on = "corrected"` under `[run]` t
 the corrected interval's lower bound against the rate `misses` implies, which the release
 after 0.3 will make the default. Without a matching calibration report the run says there
 is no corrected rate and how to get one.
+
+## Adding a provider
+
+A judge that is not Anthropic, OpenAI or an OpenAI compatible endpoint can be supplied by
+another package. juried looks an unknown `provider` name up in the `juried.providers`
+entry point group and instantiates the class it finds with the same arguments the built in
+providers get: `model`, `temperature`, `max_tokens`, `base_url` and `api_key_env`, in that
+order. The class must subclass `juried.judge.Provider` and define `fingerprint`, `judge` and
+`generate`; one that does not is a config error naming the class and what it lacks.
+Subclassing `juried.judge.LLMProvider` instead and defining only `complete_json` gives the
+pinned prompts, the retrying HTTP client, the usage accounting and the verdict parsing for
+free, which is how the two built in providers are written. A built in name always wins
+over a plugin registered under it.
+
+```toml
+[project]
+name = "juried-mistral"
+dependencies = ["juried>=0.4"]
+
+[project.entry-points."juried.providers"]
+mistral = "juried_mistral:MistralProvider"
+```
+
+With that package installed, `provider = "mistral"` under `[judge]` or `[generate]` uses
+it. The judge is recorded by the name in `juried.toml`, so a calibration report matches it
+the way it matches a built in, and it needs calibrating the same way.

@@ -8,7 +8,7 @@ from typing import Any
 
 from juried import __version__
 from juried.config import Config
-from juried.correction import Calibration
+from juried.correction import Calibration, resolve_gate
 from juried.criteria import Criterion
 from juried.pricing import TargetUsage, Usage, estimate_usd, prices_for, target_estimate_usd
 from juried.runner import ScenarioResult
@@ -70,7 +70,10 @@ def build_report(
     criteria: Sequence[Criterion],
     results: Sequence[ScenarioResult],
     calibration: Calibration | None = None,
+    gate_on: str | None = None,
 ) -> dict[str, Any]:
+    if gate_on is None:
+        gate_on = resolve_gate(config).gate_on
     by_criterion: dict[str, list[ScenarioResult]] = {c.id: [] for c in criteria}
     for result in results:
         by_criterion.setdefault(result.criterion.id, []).append(result)
@@ -122,8 +125,9 @@ def build_report(
             "misses": gate.misses,
             "required_passes": gate.passes_needed,
             "threshold": gate.equivalent_threshold,
-            "gate_on": config.run.gate_on,
-            "early_stop": config.run.early_stop_applies,
+            "gate_on": gate_on,
+            "gate_on_configured": config.run.gate_on,
+            "early_stop": config.run.early_stop_for(gate_on),
         },
         "calibration": None if calibration is None else calibration.to_dict(),
         "summary": {

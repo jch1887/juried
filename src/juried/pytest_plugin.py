@@ -12,9 +12,9 @@ import pytest
 
 from juried.adversarial import criteria_for
 from juried.cache import Cache
-from juried.calibrate import CALIBRATION_REPORT, CalibrationError, load_calibration
+from juried.calibrate import CalibrationError, load_calibration
 from juried.checks import CheckError
-from juried.config import Config, ConfigError, find_config, load_config
+from juried.config import GATE_ON_VALUES, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion
 from juried.judge import ProviderError, build_provider
 from juried.label import QUEUE_FILE, build_queue, merge_queue, read_queue, write_queue
@@ -31,7 +31,7 @@ from juried.pricing import (
 from juried.report import ReportPaths, write_reports
 from juried.runner import Runner, RunRecord, ScenarioResult, Session
 from juried.scenarios import SCENARIO_SUFFIXES, Scenario, ScenarioError, load_scenario_file
-from juried.stats import Gate, GateError, deprecation_notice
+from juried.stats import Gate, GateError
 from juried.targets.http import TargetConfigError, expand_env
 
 RESPONSE_EXCERPT = 1200
@@ -115,7 +115,7 @@ class JuriedState:
 
     def gate_for(self, scenario: Scenario) -> Gate:
         runs = scenario.runs if scenario.runs is not None else self.config.run.runs
-        return self.config.run.gate(runs, scenario.misses, scenario.threshold)
+        return self.config.run.gate(runs, scenario.misses)
 
 
 STATE = pytest.StashKey[JuriedState]()
@@ -133,10 +133,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption("--juried-runs", type=int, default=None, help="override run.runs")
     group.addoption("--juried-misses", type=int, default=None, help="override run.misses")
     group.addoption(
-        "--juried-threshold",
-        type=float,
+        "--juried-gate-on",
+        choices=GATE_ON_VALUES,
         default=None,
-        help="override run.threshold (deprecated, derive misses from a threshold)",
+        help="override run.gate_on: auto, observed or corrected",
     )
     group.addoption(
         "--juried-no-cache", action="store_true", help="ignore cached verdicts and responses"
@@ -168,7 +168,7 @@ def pytest_configure(config: pytest.Config) -> None:
         juried_config.run = juried_config.run.with_overrides(
             config.getoption("--juried-runs"),
             config.getoption("--juried-misses"),
-            config.getoption("--juried-threshold"),
+            config.getoption("--juried-gate-on"),
         )
         if config.getoption("--juried-cache-responses"):
             juried_config.run.cache_responses = True
@@ -182,14 +182,14 @@ def pytest_configure(config: pytest.Config) -> None:
             not config.getoption("--juried-no-cache"),
             xdist_workers(os.environ),
         )
-        # Building the runner now resolves the provider, so a bad name fails here.
+        # Building the runner now resolves the provider and the gate, so a bad provider
+        # name, or a strict corrected gate with nothing to correct by, fails here.
         runner = state.runner
-        if juried_config.run.gate_on == "corrected" and runner.calibration is None:
-            where = juried_config.report_path / CALIBRATION_REPORT
-            why = runner.calibration_note or f"no calibration report at {where}"
+        if juried_config.run.gate_on == "corrected" and runner.calibration_note is not None:
             raise ConfigError(
-                f'gate_on = "corrected" needs a calibration report for this judge: {why}. '
-                "Run 'juried calibrate' with labelled cases, or set gate_on = \"observed\""
+                'gate_on = "corrected" needs a usable calibration report for this judge: '
+                f"{runner.calibration_note}. Run 'juried calibrate' with labelled cases, or "
+                'set gate_on = "auto" to gate on the observed passes until one exists'
             )
     except (ConfigError, CriteriaError, ProviderError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
@@ -208,22 +208,27 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
         f"{state.config.judge.model}{votes}, runs {gate.runs}, misses {gate.misses}, "
         f"cache {cache_mode(state)}, {state.concurrency.describe(run.concurrency_scope)}"
     ]
-    notice = deprecation_notice(gate)
-    if notice:
-        lines.append(f"juried: {notice}")
     if state.cache.enabled and state.config.run.cache_responses:
         lines.append(
             "juried: warning: responses are replayed from the cache where present, so "
             "repeated runs of a replayed scenario do not sample the feature"
         )
     lines.append(f"juried: {gate.describe()}")
-    if run.gate_on == "corrected":
+    runner = state.runner
+    if runner.gate_on == "corrected":
         lines.append(
             "juried: gate on judge-corrected rate (the corrected interval's lower bound must "
             f"meet {gate.implied_rate:.0%})"
         )
-    lines.append(f"juried: {run.describe_early_stop()}")
+    elif runner.gate_fell_back:
+        lines.append(
+            f"juried: gate on observed passes (auto: {runner.calibration_note}; {CALIBRATE_FIX})"
+        )
+    lines.append(f"juried: {run.describe_early_stop(runner.gate_on)}")
     return lines
+
+
+CALIBRATE_FIX = "run 'juried calibrate' with labelled cases to gate on the judge-corrected rate"
 
 
 def cache_mode(state: JuriedState) -> str:
@@ -508,6 +513,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         state.results,
         state.config.report_path,
         state.runner.calibration,
+        state.runner.gate_on,
     )
     run_id = datetime.now(UTC).isoformat(timespec="seconds")
     fresh = build_queue(state.results, run_id, state.config.label.sample_rate)
@@ -548,7 +554,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     )
     if run_cost:
         terminalreporter.write_line(run_cost)
-    if state.config.run.early_stop_applies:
+    if state.config.run.early_stop_for(state.runner.gate_on):
         planned = sum(result.attempts_planned for result in state.results)
         made = sum(result.attempts_made for result in state.results)
         terminalreporter.write_line(
@@ -569,20 +575,16 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         terminalreporter.write_line(
             f"calibration: corrected rates use {runner.calibration.describe()}"
         )
-    elif state.config.judge.provider != "stub":
-        if runner.calibration_note:
-            terminalreporter.write_line(f"juried: warning: {runner.calibration_note}", yellow=True)
-        else:
-            terminalreporter.write_line(
-                f"juried: warning: no calibration report at "
-                f"{state.config.report_path / CALIBRATION_REPORT}; these verdicts come from "
-                f"{state.config.judge.provider}/{state.config.judge.model} and nothing has "
-                "checked it against human labels. Label real responses under calibration/ "
-                "and run 'juried calibrate'",
-                yellow=True,
-            )
+    if runner.gate_fell_back:
         terminalreporter.write_line(
-            "juried: no corrected rate; run 'juried calibrate' with labelled cases to get one",
+            f"juried: warning: gate on observed passes because {runner.calibration_note}; "
+            f"{CALIBRATE_FIX}",
+            yellow=True,
+        )
+    elif runner.calibration_note is not None:
+        terminalreporter.write_line(
+            f"juried: warning: no corrected rate: {runner.calibration_note}; run 'juried "
+            "calibrate' with labelled cases to get one",
             yellow=True,
         )
     terminalreporter.write_line(describe_calibration_set(state))

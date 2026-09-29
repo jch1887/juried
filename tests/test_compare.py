@@ -268,7 +268,7 @@ def test_compare_command_prints_and_exits_nonzero_on_regression(
     assert "cannot read" in capsys.readouterr().err
 
 
-def test_tolerance_is_a_deprecated_alias_for_min_effect(
+def test_tolerance_is_no_longer_accepted(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     old, new = tmp_path / "old.json", tmp_path / "new.json"
@@ -276,18 +276,13 @@ def test_tolerance_is_a_deprecated_alias_for_min_effect(
     new.write_text(json.dumps(report(entry("slid", 12, 20, misses=8))))
     assert main(["compare", str(old), str(new)]) == 1
     capsys.readouterr()
-    assert main(["compare", str(old), str(new), "--tolerance", "0.5"]) == 0
+    with pytest.raises(SystemExit):
+        main(["compare", str(old), str(new), "--tolerance", "0.5"])
+    assert "unrecognised arguments: --tolerance 0.5" in capsys.readouterr().err
+    assert main(["compare", str(old), str(new), "--min-effect", "0.5"]) == 0
     captured = capsys.readouterr()
-    assert "juried: --tolerance is deprecated and is removed in 0.4; use --min-effect 0.5" in (
-        captured.err
-    )
     assert "(alpha 0.05, min effect 0.5)" in captured.out
     assert "drop within noise: slid" in captured.out
-    assert main(["compare", str(old), str(new), "--min-effect", "0.5"]) == 0
-    assert "deprecated" not in capsys.readouterr().err
-    assert main(["compare", str(old), str(new), "--tolerance", "0.5", "--min-effect", "0.5"]) == 0
-    assert main(["compare", str(old), str(new), "--tolerance", "0.5", "--min-effect", "0.1"]) == 2
-    assert "disagree" in capsys.readouterr().err
     assert main(["compare", str(old), str(new), "--alpha", "1"]) == 2
     assert "--alpha must be between 0 and 1" in capsys.readouterr().err
     assert main(["compare", str(old), str(new), "--alpha", "0.001"]) == 0

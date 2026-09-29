@@ -31,7 +31,14 @@ from juried.compare import (
     power_of,
     scenarios_by_id,
 )
-from juried.config import CONFIG_FILENAME, Config, ConfigError, find_config, load_config
+from juried.config import (
+    CONFIG_FILENAME,
+    GATE_ON_VALUES,
+    Config,
+    ConfigError,
+    find_config,
+    load_config,
+)
 from juried.criteria import CriteriaError
 from juried.estimate import describe_plan, load_previous_report, plan_run
 from juried.generate import generate_scenarios
@@ -105,12 +112,14 @@ concurrency = 4
 # Under pytest-xdist the caps are divided by the worker count so the total in flight stays
 # as written ("global"); "worker" gives every worker the full caps.
 # concurrency_scope = "global"
-# Gate on the judge-corrected pass rate (needs a calibration report) rather than the
-# observed passes. The default becomes "corrected" in the release after 0.3.
-# gate_on = "observed"
+# What the gate runs on. "auto" gates on the judge-corrected rate once a usable
+# calibration report for this judge is under reports/ and on the observed passes until
+# then, saying which; "corrected" always corrects and refuses to run without a usable
+# report; "observed" never lets the correction decide, though the rate is still shown.
+gate_on = "auto"
 # A scenario stops once its gate is decided (lost when the failures exceed misses, won
-# when the passes reach what the gate needs); false runs every attempt. Off under
-# gate_on = "corrected", which needs full sampling.
+# when the passes reach what the gate needs); false runs every attempt. Off while the
+# gate is on the corrected rate, which needs full sampling.
 # early_stop = true
 cache_dir = ".juried"
 # Verdicts are cached by content so an unchanged response is not judged twice. Responses
@@ -291,16 +300,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument(
         "--min-effect",
         type=float,
-        default=None,
+        default=DEFAULT_MIN_EFFECT,
         metavar="RATE",
         help=f"and the pass rate fell by at least this much (default {DEFAULT_MIN_EFFECT})",
-    )
-    compare.add_argument(
-        "--tolerance",
-        type=float,
-        default=None,
-        metavar="RATE",
-        help="deprecated alias for --min-effect, removed in 0.4",
     )
     compare.add_argument("--json", metavar="PATH", help="also write the comparison as JSON")
     compare.add_argument(
@@ -314,9 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--runs", type=int, help="override run.runs")
     run.add_argument("--misses", type=int, help="override run.misses")
     run.add_argument(
-        "--threshold",
-        type=float,
-        help="override run.threshold (deprecated; misses is derived from it)",
+        "--gate-on",
+        choices=GATE_ON_VALUES,
+        help="override run.gate_on: auto, observed or corrected",
     )
     run.add_argument(
         "--no-cache", action="store_true", help="ignore cached verdicts (and responses)"
@@ -526,34 +528,16 @@ def command_estimate(
     return 0
 
 
-def resolve_min_effect(min_effect: float | None, tolerance: float | None) -> float:
-    if tolerance is not None:
-        if min_effect is not None and min_effect != tolerance:
-            raise CompareError(
-                f"--tolerance {tolerance} and --min-effect {min_effect} disagree; --tolerance "
-                "is a deprecated alias for --min-effect, pass one of them"
-            )
-        print(
-            f"juried: --tolerance is deprecated and is removed in 0.4; use --min-effect "
-            f"{tolerance:g}",
-            file=sys.stderr,
-        )
-        return tolerance
-    return DEFAULT_MIN_EFFECT if min_effect is None else min_effect
-
-
 def command_compare(
     old: str,
     new: str,
     alpha: float,
-    min_effect: float | None,
-    tolerance: float | None,
+    effect: float,
     json_path: str | None,
     allow_early_stopped: bool = False,
 ) -> int:
     if not 0.0 < alpha < 1.0:
         raise CompareError(f"--alpha must be between 0 and 1 exclusive, not {alpha}")
-    effect = resolve_min_effect(min_effect, tolerance)
     if not 0.0 <= effect <= 1.0:
         raise CompareError(f"--min-effect must be between 0 and 1, not {effect}")
     old_path, new_path = Path(old), Path(new)
@@ -608,7 +592,7 @@ def command_run(
     explicit: str | None,
     runs: int | None,
     misses: int | None,
-    threshold: float | None,
+    gate_on: str | None,
     no_cache: bool,
     cache_responses: bool,
     no_early_stop: bool,
@@ -622,8 +606,8 @@ def command_run(
         args.append(f"--juried-runs={runs}")
     if misses is not None:
         args.append(f"--juried-misses={misses}")
-    if threshold is not None:
-        args.append(f"--juried-threshold={threshold}")
+    if gate_on is not None:
+        args.append(f"--juried-gate-on={gate_on}")
     if no_cache:
         args.append("--juried-no-cache")
     if cache_responses:
@@ -660,7 +644,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.new,
                 args.alpha,
                 args.min_effect,
-                args.tolerance,
                 args.json,
                 args.allow_early_stopped,
             )
@@ -668,7 +651,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.config,
             args.runs,
             args.misses,
-            args.threshold,
+            args.gate_on,
             args.no_cache,
             args.cache_responses,
             args.no_early_stop,

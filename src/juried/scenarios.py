@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
-from juried.config import StrictModel
+from juried.config import THRESHOLD_REMOVED, StrictModel
 from juried.criteria import slugify
 
 ScenarioKind = Literal["happy_path", "edge_case", "custom", "adversarial"]
@@ -79,10 +79,15 @@ class Scenario(ScenarioDraft):
     checks: list[Check] = Field(default_factory=list)
     runs: int | None = Field(default=None, ge=1)
     misses: int | None = Field(default=None, ge=0)
-    # Deprecated since 0.3: misses is derived from it. Removed in 0.4.
-    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     tags: list[str] = Field(default_factory=list)
     source: Path | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def threshold_is_gone(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "threshold" in data:
+            raise ValueError(THRESHOLD_REMOVED)
+        return data
 
 
 class ScenarioFile(StrictModel):

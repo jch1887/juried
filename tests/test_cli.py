@@ -38,7 +38,7 @@ def test_init_config_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     config = load_config(tmp_path / "juried.toml", environ={})
     assert config.run.misses == 1
-    assert config.run.threshold is None
+    assert config.run.gate_on == "auto"
     assert config.run.runs == 20
     assert "threshold" not in (tmp_path / "juried.toml").read_text()
     from juried.calibrate import load_calibration
@@ -88,8 +88,13 @@ def test_generate_then_run(
     assert args[2:6] == ["-v", "--juried-runs=5", "--juried-misses=2", "--juried-no-cache"]
     assert args[6] == str(tmp_path / "scenarios")
     assert args[7:] == ["-k", "x", "-x"]
+    assert main(["run", "--gate-on", "observed"]) == 0
+    assert "--juried-gate-on=observed" in captured["args"]
+    with pytest.raises(SystemExit):
+        main(["run", "--gate-on", "judge"])
+    # No longer a juried flag, so it falls through to pytest like any unknown argument.
     assert main(["run", "--threshold", "0.3"]) == 0
-    assert "--juried-threshold=0.3" in captured["args"]
+    assert "--threshold" in captured["args"] and "--juried-threshold=0.3" not in captured["args"]
     assert main(["run", "--cache-responses"]) == 0
     assert "--juried-cache-responses" in captured["args"]
     assert main(["run"]) == 0

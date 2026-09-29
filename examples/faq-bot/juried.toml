@@ -12,6 +12,10 @@ output_price = 5.0
 [run]
 runs = 10
 misses = 1
+# The default. The committed calibration report is for claude-haiku-4-5, not the stub, so
+# the gate stays on the observed passes and the run says why; "observed" would say so in
+# the file instead.
+gate_on = "auto"
 
 [judge]
 provider = "stub"

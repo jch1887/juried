@@ -109,20 +109,28 @@ class CriteriaConfig(StrictModel):
     calibration_dir: Path = Path("calibration")
 
 
+GateOn = Literal["auto", "observed", "corrected"]
+GATE_ON_VALUES = ("auto", "observed", "corrected")
+THRESHOLD_REMOVED = (
+    "threshold was removed in 0.4; set misses instead, the failed attempts a scenario may "
+    "have and still pass"
+)
+
+
 class RunConfig(StrictModel):
     runs: int = Field(default=20, ge=1)
-    # Failed attempts a scenario may have and still pass. Unset means DEFAULT_MISSES, or
-    # whatever the deprecated threshold works out to when only that is set.
+    # Failed attempts a scenario may have and still pass. Unset means DEFAULT_MISSES.
     misses: int | None = Field(default=None, ge=0)
-    threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     concurrency: int = Field(default=4, ge=1)
     # Under pytest-xdist each worker has its own caps. "global" divides both caps by the
     # worker count so the total in flight stays as configured; "worker" applies them as
     # written to every worker.
     concurrency_scope: Literal["global", "worker"] = "global"
     # "corrected" gates on the judge-corrected rate's interval instead of the observed
-    # passes. The default flips to "corrected" in the release after 0.3.
-    gate_on: Literal["observed", "corrected"] = "observed"
+    # passes and needs a usable calibration report; "auto" gates on the corrected rate
+    # when there is one and on the observed passes otherwise. The run resolves it once,
+    # in juried.correction.resolve_gate, and every reader of the gate takes that value.
+    gate_on: GateOn = "auto"
     # Stop a scenario once its gate is decided: lost when the failed attempts exceed
     # `misses`, won when the passes reach the count the gate needs. Attempts that are still
     # in flight finish and count; the rest are never sent.
@@ -133,16 +141,23 @@ class RunConfig(StrictModel):
 
     # The corrected rate needs every attempt, since its interval is a bootstrap over the
     # judged attempts, so gating on it turns early stopping off whatever the key says.
-    @property
-    def early_stop_applies(self) -> bool:
-        return self.early_stop and self.gate_on != "corrected"
+    # `gate_on` is the resolved value, "observed" or "corrected", never "auto".
+    def early_stop_for(self, gate_on: str) -> bool:
+        return self.early_stop and gate_on != "corrected"
 
-    def describe_early_stop(self) -> str:
-        if self.early_stop_applies:
+    def describe_early_stop(self, gate_on: str) -> str:
+        if self.early_stop_for(gate_on):
             return "early stop on (a scenario ends once its gate is decided)"
-        if self.gate_on == "corrected":
+        if gate_on == "corrected":
             return "early stop off (gate_on = corrected needs full sampling)"
         return "early stop off (early_stop = false)"
+
+    @model_validator(mode="before")
+    @classmethod
+    def threshold_is_gone(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "threshold" in data:
+            raise ValueError(f"run.{THRESHOLD_REMOVED}")
+        return data
 
     @model_validator(mode="after")
     def gate_is_consistent(self) -> RunConfig:
@@ -152,29 +167,22 @@ class RunConfig(StrictModel):
             raise ValueError(f"run: {exc}") from None
         return self
 
-    # A scenario may override runs, misses or threshold; the more specific setting wins,
-    # and a scenario threshold is derived at the scenario's own run count.
-    def gate(
-        self,
-        runs: int | None = None,
-        misses: int | None = None,
-        threshold: float | None = None,
-    ) -> Gate:
-        if misses is None and threshold is None:
-            misses, threshold = self.misses, self.threshold
-        return build_gate(runs if runs is not None else self.runs, misses, threshold)
+    # A scenario may override runs and misses; the more specific setting wins.
+    def gate(self, runs: int | None = None, misses: int | None = None) -> Gate:
+        if misses is None:
+            misses = self.misses
+        return build_gate(runs if runs is not None else self.runs, misses)
 
     def with_overrides(
-        self, runs: int | None = None, misses: int | None = None, threshold: float | None = None
+        self, runs: int | None = None, misses: int | None = None, gate_on: str | None = None
     ) -> RunConfig:
         data = self.model_dump()
         if runs is not None:
             data["runs"] = runs
-        # A command line gate replaces the file's, so the two cannot be made to disagree.
         if misses is not None:
-            data["misses"], data["threshold"] = misses, None
-        elif threshold is not None:
-            data["misses"], data["threshold"] = None, threshold
+            data["misses"] = misses
+        if gate_on is not None:
+            data["gate_on"] = gate_on
         try:
             return RunConfig.model_validate(data)
         except ValidationError as exc:

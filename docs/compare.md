@@ -22,8 +22,7 @@ decrease, on the passes and fails, and reports the difference with its Newcombe 
 interval. A drop is a regression when its p-value is below `--alpha` (default 0.05) and the
 rate fell by at least `--min-effect` (default 0.10, ten points); smaller or less certain
 drops are listed under "drops within noise" with their p-value and interval, so they are
-visible without failing the step. `--tolerance` from 0.2 is a deprecated alias for
-`--min-effect`. After the table a note says the smallest drop the run counts could have
+visible without failing the step. After the table a note says the smallest drop the run counts could have
 shown, for example `at 20 vs 20 runs this comparison can only detect drops of about 34
 points or more`; a comparison that must catch smaller regressions needs more runs on both
 sides.

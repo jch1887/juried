@@ -27,8 +27,9 @@ def write_reports(
     results: Sequence[ScenarioResult],
     output_dir: Path,
     calibration: Calibration | None = None,
+    gate_on: str | None = None,
 ) -> ReportPaths:
-    report = build_report(config, criteria, results, calibration)
+    report = build_report(config, criteria, results, calibration, gate_on)
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = ReportPaths(output_dir / JSON_NAME, output_dir / HTML_NAME)
     write_json(report, paths.json)

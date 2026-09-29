@@ -71,9 +71,9 @@ more of your own responses. The run's summary says how many responses are waitin
 big the calibration set is per criterion.
 
 `juried init` writes `calibration/example.yaml` with two placeholder cases; replace them
-with real responses from your feature, labelled by your team. Until a calibration report
-exists under `reports/`, every run with a real judge ends with a warning that its verdicts
-have not been checked against human labels. For a worked set covering the hard categories
+with real responses from your feature, labelled by your team. Until a usable calibration
+report exists under `reports/`, every run ends with a warning that its gate is on the
+observed passes, and why. For a worked set covering the hard categories
 (inverted meaning, talking to the judge, hedged guesses, wrong contact details, empty and
 off topic answers) see `examples/faq-bot/calibration/`.
 
@@ -105,11 +105,26 @@ responses pushes the whole interval down from there. Each scenario then reports:
 ```
 
 When sensitivity plus specificity minus one is below 0.5 the judge is too weak to
-correct, and the report says so with the calibration accuracy instead of a figure. The gate
-stays on the observed passes in 0.3; set `gate_on = "corrected"` under `[run]` to gate on
-the corrected interval's lower bound against the rate `misses` implies, which the release
-after 0.3 will make the default. Without a matching calibration report the run says there
-is no corrected rate and how to get one.
+correct, and the report says so with the calibration accuracy instead of a figure.
+
+## What the gate runs on
+
+`gate_on` under `[run]` takes three values. `"auto"`, the default, gates on the corrected
+interval's lower bound against the rate `misses` implies whenever the calibration report
+under `reports/` is usable, that is, it is for the configured judge (same provider and
+model, and the same temperature and prompt version where the report records them) and the
+judge is not too weak to correct on the whole set; otherwise it gates on the observed
+passes, the header says `gate on observed passes (auto: ...)` with the reason, and the
+summary repeats it as a warning naming the command that fixes it. `"corrected"` is
+strict: it always gates on the corrected interval and refuses to run when the report is
+missing, for another judge or too weak. `"observed"` never lets the correction decide,
+even when a report exists; the corrected rate is still computed and shown. A gate on the
+corrected rate runs every planned attempt, because its interval is a bootstrap over the
+whole sample, so `early_stop` is ignored while it applies. Where a criterion's own cases
+are enough to use but too weak, that scenario falls back to the observed passes and the
+gate failure block says so. The JSON report records both `gate_on_configured`, the value
+in the file, and `gate_on`, what it came to, under `defaults`; `juried run --gate-on` and
+`JURIED_RUN_GATE_ON` override the file.
 
 ## Adding a provider
 

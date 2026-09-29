@@ -7,6 +7,15 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+### Added
+
+- A "Running in CI" section in the README with a complete GitHub Actions job: it installs
+  juried, runs every scenario with `--no-early-stop` against a staging URL held in a
+  secret, keeps `reports/` as an artifact, fetches `juried-report.json` from the last
+  successful run on the default branch and gates on `juried compare` against it. The same
+  file is at `examples/faq-bot/.github-workflow-example.yml`, and a test checks that its
+  steps only call subcommands `juried --help` lists.
+
 ### Changed
 
 - docs/releasing.md pulls `main` and checks the version before tagging, since a tag on the

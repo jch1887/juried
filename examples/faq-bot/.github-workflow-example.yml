@@ -1,0 +1,61 @@
+# A GitHub Actions job that runs juried against a staging endpoint and gates on the
+# comparison with the last successful run on the default branch. Copy it to
+# .github/workflows/juried.yml in your own repository; it is kept outside that directory
+# here so it does not run against the example project.
+name: Acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  juried:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # The judge key and the staging URL are repository secrets. juried never reads a
+      # secret from disk, so nothing else is needed.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      JURIED_TARGET_URL: ${{ secrets.STAGING_CHAT_URL }}
+      # Pin the gate for CI whatever juried.toml says.
+      JURIED_RUN_RUNS: "20"
+      JURIED_RUN_MISSES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install juried
+
+      - name: Run every scenario
+        # Full sampling, because juried compare refuses a scenario that stopped early.
+        run: juried run --no-early-stop --junitxml=reports/junit.xml
+
+      - name: Fetch the report from the last successful run on the default branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --workflow "${{ github.workflow }}" \
+            --branch "${{ github.event.repository.default_branch }}" \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "no successful run on the default branch yet; nothing to compare against"
+            exit 0
+          fi
+          gh run download "$run_id" --name juried-reports --dir previous
+          cp previous/juried-report.json previous.json
+
+      - name: Compare with the previous run
+        if: always() && hashFiles('previous.json') != ''
+        run: juried compare previous.json reports/juried-report.json --json reports/comparison.json
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: juried-reports
+          path: reports/

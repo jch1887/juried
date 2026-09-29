@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -12,7 +13,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 
+from juried.cli import main
 from juried.config import TargetConfig
 from juried.targets.http import HttpTarget
 
@@ -110,3 +113,25 @@ provider = "stub"
     assert scenario["latency"]["first_token"]["mean_ms"] < scenario["latency"]["mean_ms"]
     assert all(a["first_token_ms"] is not None for a in scenario["attempts"])
     assert "first token" in (pytester.path / "reports" / "juried-report.html").read_text()
+
+
+WORKFLOW = SERVER.parent / ".github-workflow-example.yml"
+
+
+def test_example_workflow_uses_only_listed_subcommands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    listed = re.search(r"\{([a-z,]+)\}", capsys.readouterr().out)
+    assert listed is not None
+    subcommands = set(listed.group(1).split(","))
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    commands = [
+        step["run"] for job in workflow["jobs"].values() for step in job["steps"] if "run" in step
+    ]
+    used = {match for command in commands for match in re.findall(r"\bjuried (\w+)", command)}
+    assert used == {"run", "compare"}
+    assert used <= subcommands
+    assert any("--no-early-stop" in command for command in commands)

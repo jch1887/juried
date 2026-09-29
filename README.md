@@ -198,6 +198,77 @@ juried compare reports/baseline.json reports/juried-report.json --json reports/c
 The test behind it, `--alpha`, `--min-effect` and the detectable drop note are in
 [docs/compare.md](docs/compare.md).
 
+## Running in CI
+
+The same commands make a gating job. This one runs the scenarios against staging, keeps
+the reports as an artifact, and fails when the run regressed against the last successful
+run on the default branch. The run passes `--no-early-stop` because `juried compare`
+refuses a scenario that stopped early, its rate being a bound rather than an estimate. The
+judge key and the staging URL are repository secrets, and the `JURIED_*` overrides pin
+`runs` and `misses` so the gate in CI does not depend on a local edit to `juried.toml`.
+The file is also at
+[examples/faq-bot/.github-workflow-example.yml](examples/faq-bot/.github-workflow-example.yml).
+
+```yaml
+name: Acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  juried:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # The judge key and the staging URL are repository secrets. juried never reads a
+      # secret from disk, so nothing else is needed.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      JURIED_TARGET_URL: ${{ secrets.STAGING_CHAT_URL }}
+      # Pin the gate for CI whatever juried.toml says.
+      JURIED_RUN_RUNS: "20"
+      JURIED_RUN_MISSES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install juried
+
+      - name: Run every scenario
+        # Full sampling, because juried compare refuses a scenario that stopped early.
+        run: juried run --no-early-stop --junitxml=reports/junit.xml
+
+      - name: Fetch the report from the last successful run on the default branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --workflow "${{ github.workflow }}" \
+            --branch "${{ github.event.repository.default_branch }}" \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "no successful run on the default branch yet; nothing to compare against"
+            exit 0
+          fi
+          gh run download "$run_id" --name juried-reports --dir previous
+          cp previous/juried-report.json previous.json
+
+      - name: Compare with the previous run
+        if: always() && hashFiles('previous.json') != ''
+        run: juried compare previous.json reports/juried-report.json --json reports/comparison.json
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: juried-reports
+          path: reports/
+```
+
 ## The report
 
 After a run juried writes `reports/juried-report.html` and `reports/juried-report.json`.

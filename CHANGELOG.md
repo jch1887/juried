@@ -15,6 +15,8 @@ change between minor versions; every such change is listed under "Breaking chang
   successful run on the default branch and gates on `juried compare` against it. The same
   file is at `examples/faq-bot/.github-workflow-example.yml`, and a test checks that its
   steps only call subcommands `juried --help` lists.
+- A test that fails once the judge price table in `pricing.py` is more than four months
+  old, naming the date and asking for the table and `PRICES_DATED` to be refreshed.
 
 ### Changed
 

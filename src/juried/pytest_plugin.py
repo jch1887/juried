@@ -182,14 +182,16 @@ def pytest_configure(config: pytest.Config) -> None:
             not config.getoption("--juried-no-cache"),
             xdist_workers(os.environ),
         )
-        if juried_config.run.gate_on == "corrected" and state.runner.calibration is None:
+        # Building the runner now resolves the provider, so a bad name fails here.
+        runner = state.runner
+        if juried_config.run.gate_on == "corrected" and runner.calibration is None:
             where = juried_config.report_path / CALIBRATION_REPORT
-            why = state.runner.calibration_note or f"no calibration report at {where}"
+            why = runner.calibration_note or f"no calibration report at {where}"
             raise ConfigError(
                 f'gate_on = "corrected" needs a calibration report for this judge: {why}. '
                 "Run 'juried calibrate' with labelled cases, or set gate_on = \"observed\""
             )
-    except (ConfigError, CriteriaError, TargetConfigError) as exc:
+    except (ConfigError, CriteriaError, ProviderError, TargetConfigError) as exc:
         raise pytest.UsageError(f"juried: {exc}") from exc
     config.stash[STATE] = state
 

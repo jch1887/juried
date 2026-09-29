@@ -862,6 +862,15 @@ def test_bad_config_is_usage_error(pytester: pytest.Pytester) -> None:
     result.stderr.fnmatch_lines(["*juried: juried.toml is invalid*"])
 
 
+def test_unknown_provider_is_usage_error(pytester: pytest.Pytester) -> None:
+    write_project(pytester, "http://127.0.0.1:9")
+    text = (pytester.path / "juried.toml").read_text().replace('"stub"', '"nope"')
+    (pytester.path / "juried.toml").write_text(text)
+    result = pytester.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*juried: unknown provider 'nope'*"])
+
+
 def test_dormant_without_config(pytester: pytest.Pytester) -> None:
     pytester.makepyfile(test_plain="def test_ok():\n    assert True\n")
     (pytester.path / "scenarios").mkdir()

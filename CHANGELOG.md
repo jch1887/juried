@@ -17,6 +17,16 @@ change between minor versions; every such change is listed under "Breaking chang
   steps only call subcommands `juried --help` lists.
 - A test that fails once the judge price table in `pricing.py` is more than four months
   old, naming the date and asking for the table and `PRICES_DATED` to be refreshed.
+- Provider plugins. A `provider` name that is not `anthropic`, `openai` or `stub` is looked
+  up in the `juried.providers` entry point group, for the judge and for generation alike,
+  and the class found is instantiated with the arguments the built in providers get
+  (`model`, `temperature`, `max_tokens`, `base_url`, `api_key_env`). It must subclass
+  `juried.judge.Provider`; a class that does not, or that leaves `fingerprint`, `judge` or
+  `generate` undefined, is a config error naming the class and the missing methods, and a
+  built in name always wins over a plugin. `judge.provider` and `generate.provider` therefore
+  accept any non empty string, and an unknown name is reported when the provider is built
+  rather than when the config is read. `docs/judge.md` shows the `pyproject.toml` a plugin
+  needs and `docs/stability.md` lists `Provider` and its required methods.
 
 ### Changed
 

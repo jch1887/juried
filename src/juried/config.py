@@ -21,7 +21,9 @@ from juried.stats import Gate, GateError, build_gate
 CONFIG_FILENAME = "juried.toml"
 ENV_PREFIX = "JURIED_"
 
-ProviderName = Literal["anthropic", "openai", "stub"]
+# A built in name (anthropic, openai, stub) or one registered under the juried.providers
+# entry point group; build_provider in juried.judge resolves it.
+ProviderName = str
 
 
 class StrictModel(BaseModel):
@@ -205,6 +207,13 @@ class JudgeConfig(StrictModel):
             raise ValueError(f"judge.{info.field_name} must not be empty; omit it for the default")
         return value.strip() if value is not None else None
 
+    @field_validator("provider")
+    @classmethod
+    def provider_is_not_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("judge.provider must not be empty")
+        return value.strip()
+
     # An empty model name would otherwise reach the provider and come back as an HTTP 400
     # quoting the provider's own validator, which is far less clear than this.
     @field_validator("model")
@@ -256,7 +265,7 @@ class GenerateConfig(StrictModel):
     # criteria in runs.
     adversarial_pack: bool = False
 
-    @field_validator("model", "base_url", "api_key_env")
+    @field_validator("provider", "model", "base_url", "api_key_env")
     @classmethod
     def optional_strings_are_not_blank(cls, value: str | None, info: Any) -> str | None:
         if value is not None and not value.strip():

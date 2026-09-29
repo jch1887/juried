@@ -30,7 +30,7 @@ concurrency = 4    # requests in flight to the target, across all scenarios
 # early_stop = true              # stop a scenario once its gate is decided
 
 [judge]
-provider = "anthropic"    # anthropic, openai or stub
+provider = "anthropic"    # anthropic, openai, stub or an installed plugin
 model = "claude-sonnet-5" # pinned and recorded with every verdict
 concurrency = 4           # requests in flight to the judge, across all scenarios
 # base_url = "http://127.0.0.1:11434/v1"   # any OpenAI compatible endpoint, with provider = "openai"
@@ -48,6 +48,9 @@ the saving and what a stopped scenario's rate means are in [runs.md](runs.md#ear
 Set `temperature` under `[judge]` only for a model that accepts it. `claude-sonnet-5` rejects
 the parameter, so the example leaves it out; when it is unset nothing is sent and the report
 says so.
+
+A `provider` that is none of the three is looked up among installed packages; see
+[judge.md](judge.md#adding-a-provider) for how a package registers one.
 
 `base_url` points a provider at another host. With `provider = "openai"` any OpenAI
 compatible endpoint works as judge and generator without a new provider: Ollama at

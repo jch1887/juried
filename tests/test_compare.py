@@ -276,9 +276,10 @@ def test_tolerance_is_no_longer_accepted(
     new.write_text(json.dumps(report(entry("slid", 12, 20, misses=8))))
     assert main(["compare", str(old), str(new)]) == 1
     capsys.readouterr()
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         main(["compare", str(old), str(new), "--tolerance", "0.5"])
-    assert "unrecognised arguments: --tolerance 0.5" in capsys.readouterr().err
+    assert exc.value.code == 2
+    assert "--tolerance was removed in 0.4; use --min-effect instead" in capsys.readouterr().err
     assert main(["compare", str(old), str(new), "--min-effect", "0.5"]) == 0
     captured = capsys.readouterr()
     assert "(alpha 0.05, min effect 0.5)" in captured.out

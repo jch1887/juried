@@ -92,9 +92,6 @@ def test_generate_then_run(
     assert "--juried-gate-on=observed" in captured["args"]
     with pytest.raises(SystemExit):
         main(["run", "--gate-on", "judge"])
-    # No longer a juried flag, so it falls through to pytest like any unknown argument.
-    assert main(["run", "--threshold", "0.3"]) == 0
-    assert "--threshold" in captured["args"] and "--juried-threshold=0.3" not in captured["args"]
     assert main(["run", "--cache-responses"]) == 0
     assert "--juried-cache-responses" in captured["args"]
     assert main(["run"]) == 0
@@ -124,6 +121,39 @@ cases:
     verdict: fail
     note: stub cannot see this
 """
+
+
+def test_run_threshold_flag_names_its_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    write_project(tmp_path, "http://localhost:1")
+    monkeypatch.setattr("juried.cli.pytest.main", lambda args: pytest.fail("pytest was run"))
+    with pytest.raises(SystemExit) as exc:
+        main(["run", "--threshold", "0.3"])
+    assert exc.value.code == 2
+    assert (
+        "juried: --threshold was removed in 0.4; set --misses instead. This flag is deleted in 0.5."
+    ) in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["run", "--help"])
+    assert "--threshold" not in capsys.readouterr().out
+
+
+def test_compare_tolerance_flag_names_its_replacement(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old, new = tmp_path / "old.json", tmp_path / "new.json"
+    with pytest.raises(SystemExit) as exc:
+        main(["compare", str(old), str(new), "--tolerance", "0.1"])
+    assert exc.value.code == 2
+    assert (
+        "juried: --tolerance was removed in 0.4; use --min-effect instead. "
+        "This flag is deleted in 0.5."
+    ) in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main(["compare", "--help"])
+    assert "--tolerance" not in capsys.readouterr().out
 
 
 def test_calibrate_reports_disagreements(

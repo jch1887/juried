@@ -7,6 +7,14 @@ change between minor versions; every such change is listed under "Breaking chang
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-30
+
+### Fixed
+
+- `--threshold`, `--juried-threshold` and `--tolerance` explain that they were removed in 0.4
+  and name their replacement, instead of falling through to pytest or argparse as unknown
+  flags. They are deleted for good in 0.5.
+
 ## [0.4.0] - 2026-09-29
 
 ### Breaking changes

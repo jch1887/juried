@@ -14,6 +14,7 @@ from juried.adversarial import criteria_for
 from juried.cache import Cache
 from juried.calibrate import CalibrationError, load_calibration
 from juried.checks import CheckError
+from juried.cli import THRESHOLD_REMOVED, RemovedFlag
 from juried.config import GATE_ON_VALUES, Config, ConfigError, find_config, load_config
 from juried.criteria import CriteriaError, Criterion
 from juried.judge import ProviderError, build_provider
@@ -151,6 +152,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         help="replay responses from the cache instead of sampling the feature",
     )
+    group.addoption("--juried-threshold", action=RemovedFlag, message=THRESHOLD_REMOVED)
 
 
 def pytest_configure(config: pytest.Config) -> None:

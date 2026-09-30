@@ -218,6 +218,32 @@ cases:
 INIT_GITIGNORE = ".juried/\nreports/\n"
 
 
+THRESHOLD_REMOVED = (
+    "juried: --threshold was removed in 0.4; set --misses instead. This flag is deleted in 0.5."
+)
+TOLERANCE_REMOVED = (
+    "juried: --tolerance was removed in 0.4; use --min-effect instead. This flag is deleted in 0.5."
+)
+
+
+class RemovedFlag(argparse.Action):
+    """A flag that only says what replaced it: hidden from help, prints one line, exits 2."""
+
+    def __init__(self, option_strings: list[str], dest: str, message: str = "") -> None:
+        super().__init__(option_strings, dest, nargs="?", help=argparse.SUPPRESS)
+        self.message = message
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        print(self.message, file=sys.stderr)
+        parser.exit(2)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="juried",
@@ -310,6 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="compare scenarios that stopped early, whose rates are bounds, not estimates",
     )
+    compare.add_argument("--tolerance", action=RemovedFlag, message=TOLERANCE_REMOVED)
 
     run = commands.add_parser("run", help="run scenarios with pytest and write the report")
     run.add_argument("--config", help=f"path to {CONFIG_FILENAME}")
@@ -338,6 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the planned requests and estimated cost, then exit without sending",
     )
+    run.add_argument("--threshold", action=RemovedFlag, message=THRESHOLD_REMOVED)
     run.epilog = (
         "Unrecognised arguments are passed to pytest, e.g. -k refunds -x --junitxml=out.xml"
     )

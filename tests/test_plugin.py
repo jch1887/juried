@@ -713,13 +713,28 @@ def test_xdist_workers_share_the_concurrency_caps(
     assert "per worker" not in plain.stdout.str()
 
 
+def test_juried_threshold_flag_names_its_replacement(
+    pytester: pytest.Pytester, fake_bot_url: str
+) -> None:
+    write_project(pytester, fake_bot_url)
+    # In a subprocess: the flag exits at option parsing, before any pytest session exists.
+    result = pytester.runpytest_subprocess("--juried-threshold=0.1", "-k", "hours")
+    assert result.ret == 2
+    result.stderr.fnmatch_lines(
+        [
+            "juried: --threshold was removed in 0.4; set --misses instead. "
+            "This flag is deleted in 0.5."
+        ]
+    )
+    assert "hours" not in result.stdout.str()
+    assert not (pytester.path / "reports").exists()
+    assert "--juried-threshold" not in pytester.runpytest("--help").stdout.str()
+
+
 def test_threshold_is_rejected_with_the_file_named(
     pytester: pytest.Pytester, fake_bot_url: str
 ) -> None:
     write_project(pytester, fake_bot_url)
-    flag = pytester.runpytest("--juried-threshold=0.1", "-k", "hours")
-    assert flag.ret == pytest.ExitCode.USAGE_ERROR
-    flag.stderr.fnmatch_lines(["*unrecognized arguments: --juried-threshold=0.1*"])
     text = (pytester.path / "juried.toml").read_text().replace("misses = 0", "threshold = 0.5")
     (pytester.path / "juried.toml").write_text(text)
     from_file = pytester.runpytest("-k", "hours")
